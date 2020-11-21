@@ -1,2 +1,3 @@
-# AirSimSLAM
-An attempt to implement SLAM algorithm in virtual environment using AirSim
+# AirSimCloud 
+Python script that extracts .ply PointCloud from airsim simulator given a list of camera positions by reprojecting disparity maps from the cameras and transforming them into world coordinate system 
+
