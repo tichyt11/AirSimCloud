@@ -21,12 +21,6 @@ end_header
 '''
 
 
-def show(img):
-    cv2.imshow('image', img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
 def Transform(coords, angles):  # pitch, roll, yaw
     pitch, roll, yaw = angles
 

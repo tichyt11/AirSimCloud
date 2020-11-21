@@ -1,10 +1,16 @@
 from AirSimEnv import AirSimEnv
-from utils import *
+from CloudBuilder import *
 
 logging.getLogger().setLevel(logging.INFO)
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S')
 
 PI = math.pi
+
+
+def show(img):
+    cv2.imshow('image', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def main():
