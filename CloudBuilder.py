@@ -2,8 +2,6 @@ import math
 from scipy.spatial.transform import Rotation
 import numpy as np
 import cv2
-import shutil
-import tempfile
 import logging
 
 PI = math.pi
@@ -21,7 +19,7 @@ end_header
 '''
 
 
-def Transform(coords, angles):  # pitch, roll, yaw
+def Transform(coords, angles):  # angles as pitch, roll, yaw
     pitch, roll, yaw = angles
 
     R01 = Rotation.from_euler('ZYX', [yaw, pitch, roll])  # yaw pitch roll
@@ -36,38 +34,38 @@ def Transform(coords, angles):  # pitch, roll, yaw
     return T
 
 
-def createPointCloud(coords, angles, env, fn):
-    totalSize = 0
-    temp = tempfile.TemporaryFile()
+def collectData(coords, angles, env, path, save_images=False):
+    num_images = len(coords)
+    total_size = num_images*env.h*env.w
 
-    logging.info('Beginning point cloud extraction')
-    for i in range(len(coords)):
-        logging.info("Processing view number %d", (i+1))
-        logging.info("\tSetting camera parameters")
-        env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
-        env.setPosition(coords[i])
+    with open(path + 'point_cloud.ply', 'wb') as out:
+        out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
+        logging.info('Beginning point cloud extraction')
 
-        logging.info("\tRetrieving color and disparity data")
-        disp = env.getDisparity()  # get image and disparity map from airsim camera
-        colors = env.getRGB()
+        for i in range(num_images):
+            logging.info("Processing view number %d", (i+1))
+            logging.info("\tSetting camera parameters")
+            env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
+            env.setPosition(coords[i])
 
-        logging.info("\tReprojecting points from view")
-        T = Transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
-        P = T @ env.Q
-        verts = cv2.reprojectImageTo3D(disp, P)
+            logging.info("\tRetrieving color and disparity data")
+            disp = env.getDisparity()  # get image and disparity map from airsim camera
+            colors = env.getRGB()
 
-        verts = verts.reshape(-1, 3)
-        colors = colors.reshape(-1, 3)
-        verts = np.hstack([verts, colors])
-        totalSize += len(verts)
-        np.savetxt(temp, verts, fmt='%f %f %f %d %d %d ')  # save points to a temporary file
-        logging.info("\t Finished processing view")
+            if save_images:
+                logging.info("\tSaving images")
+                name = "images/img%d.jpg" % i
+                cv2.imwrite(path+name, cv2.cvtColor(colors, cv2.COLOR_RGB2BGR))  # convert and save
 
-    logging.info('Creating a .ply file')
-    with open(fn, 'wb') as out:  # write ply header and copy data from temp
-        out.write((ply_header % dict(vert_num=totalSize)).encode('utf-8'))
-        temp.seek(0)
-        shutil.copyfileobj(temp, out)
-    temp.close()
+            logging.info("\tReprojecting points")
+            T = Transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
+            P = T @ env.Q
+            verts = cv2.reprojectImageTo3D(disp, P)
 
-    logging.info('Point cloud creation done')
+            verts = verts.reshape(-1, 3)
+            colors = colors.reshape(-1, 3)
+            verts = np.hstack([verts, colors])
+            np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
+            logging.info("\tFinished processing view")
+
+        logging.info('Saving point cloud')

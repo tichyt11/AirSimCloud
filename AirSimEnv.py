@@ -2,6 +2,7 @@ import airsim
 import numpy as np
 import cv2
 import math
+from time import sleep
 
 
 class AirSimEnv:
@@ -11,16 +12,18 @@ class AirSimEnv:
         self.camerainfo = self.client.simGetCameraInfo(str(0))
 
         FOV = self.camerainfo.fov * math.pi/180  # convert to radians
-        h, w = self.getRGB().shape[:2]
-        fl = 0.5*w/math.tan(FOV/2)  # formula for focal length
+        self.h, self.w = self.getRGB().shape[:2]
+        fl = 0.5*self.w/math.tan(FOV/2)  # formula for focal length
         b = 0.25  # baseline from airsim documentation
 
         self.Q = np.array([
-                [1, 0, 0, -w/2],
-                [0, 1, 0, -h/2],
+                [1, 0, 0, -self.w/2],
+                [0, 1, 0, -self.h/2],
                 [0, 0, 0, fl],
                 [0, 0, 1/b, 0]
             ])
+    sleep(1)  # wait for auto exposure
+
 
     def getPosition(self):
         info = self.client.simGetCameraInfo(str(0)).pose.position
