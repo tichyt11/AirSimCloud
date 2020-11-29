@@ -3,6 +3,8 @@ from scipy.spatial.transform import Rotation
 import numpy as np
 import cv2
 import logging
+import time
+import pyproj
 
 PI = math.pi
 
@@ -17,6 +19,30 @@ property uchar green
 property uchar blue
 end_header
 '''
+
+
+def writeGPS(path, coords, index, all_images=False):
+    with open(path + 'geo.txt', 'w') as f:
+        f.write("EPSG:4326\n")
+        if all_images:
+            for i in len(coords):
+                x, y, z = coords[i]
+                lon, lat = pyproj.transform('epsg:3035', 'wgs84', x, y)
+                f.write("img%d.jpg %.15f %.15f %.15f\n" % (i, lon, lat, z))
+        else:  # 3 images is enough to align
+            for i in [0, index, len(coords)-1]:
+                x, y, z = coords[i]
+                lon, lat = pyproj.transform('epsg:3035', 'wgs84', x, y)
+                f.write("img%d.jpg %.15f %.15f %.15f\n" % (i, lon, lat, z))
+
+
+def saveImages(path, coords, angles, env):
+    for i in range(len(coords)):
+        env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
+        env.setPosition(coords[i])
+        colors = env.getRGB()
+        name = "img%d.jpg" % i
+        cv2.imwrite(path + name, cv2.cvtColor(colors, cv2.COLOR_RGB2BGR))  # convert and save
 
 
 def Transform(coords, angles):  # angles as pitch, roll, yaw
@@ -34,8 +60,9 @@ def Transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def collectData(coords, angles, env, path, save_images=False):
+def buildCloud(coords, angles, env, path):
     num_images = len(coords)
+    logging.info('Collectign data from %d views' % num_images)
     total_size = num_images*env.h*env.w
 
     with open(path + 'point_cloud.ply', 'wb') as out:
@@ -50,12 +77,8 @@ def collectData(coords, angles, env, path, save_images=False):
 
             logging.info("\tRetrieving color and disparity data")
             disp = env.getDisparity()  # get image and disparity map from airsim camera
+            time.sleep(0.5)  # wait for auto exposure
             colors = env.getRGB()
-
-            if save_images:
-                logging.info("\tSaving images")
-                name = "images/img%d.jpg" % i
-                cv2.imwrite(path+name, cv2.cvtColor(colors, cv2.COLOR_RGB2BGR))  # convert and save
 
             logging.info("\tReprojecting points")
             T = Transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
