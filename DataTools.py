@@ -2,7 +2,6 @@ import math
 from scipy.spatial.transform import Rotation
 import cv2
 import logging
-import time
 from Projections import *
 
 import piexif
@@ -23,7 +22,7 @@ end_header
 '''
 
 
-def show(img):  # displays opencv image
+def show(img):
     cv2.imshow('image', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -53,7 +52,7 @@ def write_xyz(path, coords, normalize=True, index=None):  # for COLMAP
     else:
         indeces = range(len(coords))
 
-    mean = np.zeros((3))
+    mean = np.zeros(3)
     for i in indeces:
         vec = np.array(coords[i])
         mean += vec
@@ -68,13 +67,19 @@ def write_xyz(path, coords, normalize=True, index=None):  # for COLMAP
             f.write("img%d.jpg %.15f %.15f %.15f\n" % (i, x, y, z))
 
 
-def saveImages(path, coords, angles, env):
+def save_images(path, coords, angles, env):
     for i in range(len(coords)):
         env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
         env.setPosition(coords[i])
         colors = env.getRGB()
         name = "img%d.png" % i
         cv2.imwrite(path + name, cv2.cvtColor(colors, cv2.COLOR_RGB2BGR))  # convert and save
+
+
+def coords_mean(coords):
+    mean = sum(np.array(coords)) / len(coords)
+    mean[2] = 0
+    return mean
 
 
 def dec2rat(num):  # TODO: this is temporary solution, it can be more elegant, is there a better way?
@@ -131,7 +136,7 @@ def write_exifs(path, coords, ref_coords):  # for oMVG and ODM
 def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     pitch, roll, yaw = angles
 
-    flipZY = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # flip z, so that height increases with z and flip y for righthanded coords
+    flipZY = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # flip z -> height+ <=> z+ and flip y for righthanded coords
     R01 = Rotation.from_euler('ZYX', [yaw, pitch, roll])  # yaw pitch roll
     R01 = np.array(R01.as_matrix())  # from camera coords to world coords
     R12 = np.array(Rotation.from_euler('ZX', [PI/2, PI/2]).as_matrix())  # from image coords to 'camera' (actor) coords
@@ -144,16 +149,7 @@ def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def coords_mean(coords):
-    mean = np.array([0., 0., 0.])
-    for i in coords:
-        mean += np.array(i)
-    mean /= float(len(coords))
-    mean[2] = 0
-    return mean
-
-
-def buildCloud(coords, angles, env, path, normalized=False):
+def build_cloud(coords, angles, env, path, normalized=False):
     num_images = len(coords)
     logging.info('Collectign data from %d views' % num_images)
     total_size = num_images*env.h*env.w
@@ -166,7 +162,7 @@ def buildCloud(coords, angles, env, path, normalized=False):
             env.setPosition(coords[i])
 
             disp = env.getDisparity()  # get image and disparity map from airsim camera
-            time.sleep(0.5)  # wait for auto exposure TODO: or not?
+            # time.sleep(0.5)  # wait for auto exposure TODO: or not?
             colors = env.getRGB()
 
             if normalized:
