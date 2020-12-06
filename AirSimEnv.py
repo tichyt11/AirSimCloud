@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import math
 
+
 class AirSimEnv:
     def __init__(self):
         self.client = airsim.VehicleClient()
@@ -40,7 +41,7 @@ class AirSimEnv:
 
     def setPose(self, coords, orientation, quat=False):
         x, y, z = coords
-        vector = airsim.Vector3r(x, y, z)
+        vector = airsim.Vector3r(x, -y, -z)  # flips z
 
         if not quat:
             pitch, roll, yaw = orientation
