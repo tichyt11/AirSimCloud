@@ -1,8 +1,8 @@
 import math
 from scipy.spatial.transform import Rotation
 import cv2
-import logging
 from Projections import *
+import tifffile
 
 import piexif
 from PIL import Image
@@ -28,35 +28,24 @@ def show(img):
     cv2.destroyAllWindows()
 
 
-def write_gps(path, coords, ref_coords, index=None):  # for ODM
+def write_gps_txt(path, coords, ref_coords, index=None):  # for ODM
     precision = 1
     reflat, reflon, refalt = ref_coords
 
-    if index:
-        indeces = [0, index, len(coords) - 1]
-    else:
-        indeces = range(len(coords))
+    indeces = [0, index, len(coords) - 1] if index else range(len(coords))
 
     with open(path + 'geo.txt', 'w') as f:
         f.write("EPSG:4326\n")
         for i in indeces:
             x, y, z = coords[i]
             lat, lon, alt = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
-            f.write("img%d.jpg %.15f %.15f %.15f %f %f %f %f %f\n" % (i, lon, lat, alt, 0, 0, 0, precision, precision))
+            f.write("img%d.png %.15f %.15f %.15f %f %f %f %f %f\n" % (i, lon, lat, alt, 0, 0, 0, precision, precision))
 
 
-def write_xyz(path, coords, normalize=True, index=None):  # for COLMAP
+def write_xyz_txt(path, coords, normalize=True, index=None):  # for COLMAP
+    indeces = [0, index, len(coords) - 1] if index else range(len(coords))
 
-    if index:
-        indeces = [0, index, len(coords) - 1]
-    else:
-        indeces = range(len(coords))
-
-    mean = np.zeros(3)
-    for i in indeces:
-        vec = np.array(coords[i])
-        mean += vec
-    mean /= len(indeces)
+    mean = coords_mean(coords)
 
     with open(path + 'xyz.txt', 'w') as f:
         for i in indeces:
@@ -64,7 +53,7 @@ def write_xyz(path, coords, normalize=True, index=None):  # for COLMAP
             if normalize:
                 x -= mean[0]
                 y -= mean[1]
-            f.write("img%d.jpg %.15f %.15f %.15f\n" % (i, x, y, z))
+            f.write("img%d.png %.15f %.15f %.15f\n" % (i, x, y, z))
 
 
 def save_images(path, coords, angles, env):
@@ -149,9 +138,59 @@ def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def build_cloud(coords, angles, env, path, normalized=False):
+def save_disps(coords, angles, env, path):
+    for i in range(len(coords)):
+        env.setOrientation(angles[i])
+        env.setPosition(coords[i])
+        disp = env.getDisparity()
+
+        fname = path + 'disp%d.tif' % i
+        tifffile.imsave(fname, disp)
+
+
+def save_rgbs(coords, angles, env, path):
+    for i in range(len(coords)):
+        env.setOrientation(angles[i])
+        env.setPosition(coords[i])
+        rgb = env.getRGB()
+
+        fname = path + 'rgb%d.tif' % i
+        tifffile.imsave(fname, rgb)
+
+
+def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized):
     num_images = len(coords)
-    logging.info('Collectign data from %d views' % num_images)
+    total_size = num_images*size
+    with open(path + 'point_cloud.ply', 'wb') as out:
+        out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
+
+        for i in range(num_images):
+
+            disp_file = path + 'disp%d.tif' % i
+            disp = tifffile.imread(disp_file)
+            rgb_file = path + 'rgb%d.tif' % i
+            colors = tifffile.imread(rgb_file)
+
+            if normalized:
+                norm_coords = np.array(coords[i]) - coords_mean(coords)
+                T = camera2world_transform(norm_coords, angles[i])
+            else:
+                T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
+
+            P = T @ reproj_matrix
+            verts = cv2.reprojectImageTo3D(disp, P)
+
+            verts = verts.reshape(-1, 3)
+            colors = colors.reshape(-1, 3)
+            verts = np.hstack([verts, colors])
+            np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
+            print('View number %d done' % i)
+        print('Saving point cloud')
+
+
+def get_cloud(coords, angles, env, path, normalized=False):
+    num_images = len(coords)
+    print('Collectign data from %d views' % num_images)
     total_size = num_images*env.h*env.w
 
     with open(path + 'point_cloud.ply', 'wb') as out:
@@ -162,7 +201,6 @@ def build_cloud(coords, angles, env, path, normalized=False):
             env.setPosition(coords[i])
 
             disp = env.getDisparity()  # get image and disparity map from airsim camera
-            # time.sleep(0.5)  # wait for auto exposure TODO: or not?
             colors = env.getRGB()
 
             if normalized:
@@ -178,6 +216,6 @@ def build_cloud(coords, angles, env, path, normalized=False):
             colors = colors.reshape(-1, 3)
             verts = np.hstack([verts, colors])
             np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
-            logging.info('View number %d done' % i)
+            print('View number %d done' % i)
 
-        logging.info('Saving point cloud')
+        print('Saving point cloud')

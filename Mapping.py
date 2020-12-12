@@ -3,9 +3,6 @@ from DataTools import *
 import os
 import numpy as np
 
-logging.getLogger().setLevel(logging.INFO)
-logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S')
-
 PI = math.pi
 
 
@@ -41,9 +38,11 @@ def get_trajectory(rect, h, cam_params, frontlap=0.8, sidelap=0.7):
 def main():
     data_path = os.getcwd() + '\\data\\'
     image_path = data_path + 'images\\'
+    recon_path = data_path + 'recon\\'
     normalized = True
 
     # env = AirSimEnv()
+
     # cam_params = (env.FOV, env.w, env.h)
     cam_params = (PI/2, 640, 360)
     ref_coords = (reflat, reflon, refalt) = (0, 3, 0)  # ref lat, lon and alt for topocentric coords
@@ -52,11 +51,18 @@ def main():
     coords, angles, numx = get_trajectory(rect, h=30, cam_params=cam_params)
     angles = np.array(angles)*PI/180  # angles as pitch, roll, yaw in radians
 
-    # write_xyz(data_path, coords, normalized, numx-1)
-    # write_gps(data_path, coords, ref_coords)
-    # write_exifs(image_path, coords, ref_coords)
+    # write_xyz_txt(data_path, coords, normalized, numx-1)
+    # write_gps_txt(data_path, coords, ref_coords)
+
     # save_images(image_path, coords, angles, env)
-    # build_cloud(coords, angles, env, data_path, normalized=normalized)
+    # write_exifs(image_path, coords, ref_coords)
+
+    # get_cloud(coords, angles, env, data_path, normalized=normalized)
+
+    # save_disps(coords, angles, env, recon_path)
+    # save_rgbs(coords, angles, env, recon_path)
+    # size = env.w*env.h
+    # build_cloud_from_saved(coords, angles, recon_path, size, env.Q, normalized=True)
 
 
 if __name__ == "__main__":
