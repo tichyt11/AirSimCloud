@@ -6,7 +6,7 @@ import numpy as np
 PI = math.pi
 
 
-def get_trajectory(rect, h, cam_params, frontlap=0.8, sidelap=0.7):
+def make_trajectory(rect, h, cam_params, frontlap=0.8, sidelap=0.7):
     x0, y0, difx, dify = rect
     FOV, camw, camh = cam_params
     coords = []
@@ -38,17 +38,17 @@ def get_trajectory(rect, h, cam_params, frontlap=0.8, sidelap=0.7):
 def main():
     data_path = os.getcwd() + '\\data\\'
     image_path = data_path + 'images\\'
-    recon_path = data_path + 'recon\\'
+    disp_path = data_path + 'disps\\'
     normalized = True
 
-    # env = AirSimEnv()
+    env = AirSimEnv()
 
     # cam_params = (env.FOV, env.w, env.h)
     cam_params = (PI/2, 640, 360)
     ref_coords = (reflat, reflon, refalt) = (0, 3, 0)  # ref lat, lon and alt for topocentric coords
     rect = (1, 1, 60, 60)
 
-    coords, angles, numx = get_trajectory(rect, h=30, cam_params=cam_params)
+    coords, angles, numx = make_trajectory(rect, h=30, cam_params=cam_params)
     angles = np.array(angles)*PI/180  # angles as pitch, roll, yaw in radians
 
     # write_xyz_txt(data_path, coords, normalized, numx-1)
@@ -59,10 +59,10 @@ def main():
 
     # get_cloud(coords, angles, env, data_path, normalized=normalized)
 
-    # save_disps(coords, angles, env, recon_path)
-    # save_rgbs(coords, angles, env, recon_path)
+    # save_disps(coords, angles, env, disp_path)
+    # save_rgbs(coords, angles, env, image_path)
     # size = env.w*env.h
-    # build_cloud_from_saved(coords, angles, recon_path, size, env.Q, normalized=True)
+    # build_cloud_from_saved(coords, angles, data_path, size, env.Q, normalized=normalized)
 
 
 if __name__ == "__main__":

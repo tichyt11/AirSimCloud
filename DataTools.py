@@ -56,15 +56,6 @@ def write_xyz_txt(path, coords, normalize=True, index=None):  # for COLMAP
             f.write("img%d.png %.15f %.15f %.15f\n" % (i, x, y, z))
 
 
-def save_images(path, coords, angles, env):
-    for i in range(len(coords)):
-        env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
-        env.setPosition(coords[i])
-        colors = env.getRGB()
-        name = "img%d.png" % i
-        cv2.imwrite(path + name, cv2.cvtColor(colors, cv2.COLOR_RGB2BGR))  # convert and save
-
-
 def coords_mean(coords):
     mean = sum(np.array(coords)) / len(coords)
     mean[2] = 0
@@ -154,8 +145,8 @@ def save_rgbs(coords, angles, env, path):
         env.setPosition(coords[i])
         rgb = env.getRGB()
 
-        fname = path + 'rgb%d.tif' % i
-        tifffile.imsave(fname, rgb)
+        fname = path + 'rgb%d.png' % i
+        cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
 
 
 def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized):
@@ -166,10 +157,10 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized
 
         for i in range(num_images):
 
-            disp_file = path + 'disp%d.tif' % i
+            disp_file = path + 'disps\\disp%d.tif' % i
             disp = tifffile.imread(disp_file)
-            rgb_file = path + 'rgb%d.tif' % i
-            colors = tifffile.imread(rgb_file)
+            rgb_file = path + 'images\\rgb%d.png' % i
+            colors = cv2.cvtColor(cv2.imread(rgb_file), cv2.COLOR_BGR2RGB)
 
             if normalized:
                 norm_coords = np.array(coords[i]) - coords_mean(coords)
