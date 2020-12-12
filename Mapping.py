@@ -2,7 +2,6 @@ from AirSimEnv import AirSimEnv
 from DataTools import *
 import os
 import numpy as np
-
 PI = math.pi
 
 
@@ -41,7 +40,7 @@ def main():
     disp_path = data_path + 'disps\\'
     normalized = True
 
-    env = AirSimEnv()
+    # env = AirSimEnv()
 
     # cam_params = (env.FOV, env.w, env.h)
     cam_params = (PI/2, 640, 360)
@@ -63,7 +62,6 @@ def main():
     # save_rgbs(coords, angles, env, image_path)
     # size = env.w*env.h
     # build_cloud_from_saved(coords, angles, data_path, size, env.Q, normalized=normalized)
-
 
 if __name__ == "__main__":
     main()
