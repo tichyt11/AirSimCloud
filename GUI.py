@@ -4,7 +4,7 @@ import search
 
 
 class Picker:
-    def __init__(self, dem, occupancy_grid, vals):
+    def __init__(self, dem, occupancy_grid, vals, image2world):
         (h, w) = dem.shape[:2]
         self.h, self.w = h, w
 
@@ -22,19 +22,19 @@ class Picker:
         self.canvas.pack(side='left', fill=tk.X, expand=True)
 
         self.info = {'Start': (0, 0), 'Goal': (0, 0)}
-        self.label = tk.Label(rightFrame, width=20, height=4, text='', bg='white')
+        self.label = tk.Label(rightFrame, width=25, height=4, text='', bg='white')
         self.label.pack(side='bottom')
-        self.pos = tk.Label(rightFrame, width=20, height=2, text='mouse pos', bg='white')
+        self.pos = tk.Label(rightFrame, width=25, height=2, text='mouse pos', bg='white')
         self.pos.pack(side='bottom')
 
         self.to_show = tk.StringVar()
         self.to_show.set('Show occupancy')
 
-        button1 = tk.Button(rightFrame, command=self.quit, width=20, text='Close', bg='white')
-        button2 = tk.Button(rightFrame, command=self.toggle_image, width=20, textvariable=self.to_show, bg='white')
-        button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=20, text='Pick Start', bg= 'white')
-        button4 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=20, text='Pick Goal', bg='white')
-        button5 = tk.Button(rightFrame, command=self.compute, width=20, text='Find Path', bg='white')
+        button1 = tk.Button(rightFrame, command=self.quit, width=25, text='Close', bg='white')
+        button2 = tk.Button(rightFrame, command=self.toggle_image, width=25, textvariable=self.to_show, bg='white')
+        button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=25, text='Pick Start', bg= 'white')
+        button4 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=25, text='Pick Goal', bg='white')
+        button5 = tk.Button(rightFrame, command=self.compute, width=25, text='Find Path', bg='white')
         button1.pack(side='top')
         button2.pack(side='top')
         button3.pack(side='top')
@@ -50,6 +50,7 @@ class Picker:
         self.vals = vals
         self.path = []
         self.path_graph = []
+        self.image2world = image2world
 
         picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dem))
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
@@ -70,7 +71,8 @@ class Picker:
     def update_pos(self, event):
         col, row = event.x, event.y
         if 0 <= col < self.w and 0 <= row < self.h:
-            self.pos['text'] = 'Mouse at [%d, %d, %.2f]' % (row, col, self.vals[row-1, col-1])
+            x, y = self.image2world(row, col)
+            self.pos['text'] = 'Mouse at [%.2f, %.2f, %.2f]' % (x, y, self.vals[row-1, col-1])
 
     def change_mode(self, mode):
         colors = {'Start': 'red', 'Goal': 'blue'}
@@ -132,7 +134,11 @@ class Picker:
     def make_info(self):
         info = ''
         if self.start:
-            info += ('Start is at [%d, %d]\n' % self.info['Start'])
+            row, col = self.info['Start']
+            x, y = self.image2world(row, col)
+            info += ('Start is at [%.2f, %.2f, %.2f]\n' % (x, y, self.vals[row, col]))
         if self.goal:
-            info += ('Goal is at [%d, %d]\n' % self.info['Goal'])
+            row, col = self.info['Goal']
+            x, y = self.image2world(row, col)
+            info += ('Goal is at [%.2f, %.2f, %.2f]\n' % (x, y, self.vals[row, col]))
         self.label['text'] = info
