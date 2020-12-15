@@ -4,6 +4,8 @@ import os
 import math
 import numpy as np
 import GUI
+from matplotlib import cm
+from scipy import signal
 
 
 def image2world(row, col, res, h, origin):
@@ -20,12 +22,18 @@ def world2image(x, y, res, h, origin):
     return row, col
 
 
+def circle_kernel(r):
+    y, x = np.ogrid[-r:r+1, -r:r+1]
+    mask = x*x + y*y <= r*r
+    return mask.astype(np.uint8)
+
+
 data_path = os.getcwd() + '\\data\\'
 fin = data_path + 'ColCloud.las'
 fout = data_path + 'DSM.tif'
-tilesize = 0.1
+tilesize = 0.3
 grid_origin = np.array([-46, -64])
-h, w = 1240, 920
+h, w = 400, 300
 
 cmd = """
  [
@@ -35,7 +43,7 @@ cmd = """
          "gdaldriver":"GTiff",
          "filename":"%s",
          "output_type":"max",
-         "nodata":100,
+         "nodata":50,
          "origin_x": %d,
          "origin_y": %d,
          "height"   : %d,
@@ -50,9 +58,11 @@ array = tifffile.imread(fout)
 
 wo = world2image(0, 0, tilesize, h, grid_origin)  # world origin coords on image
 
-array = (array - array.min())
-occupancy = (array >= 10) | (array < 1)
-vis = 255*array/array.max()
-vis = vis.astype(np.uint8)
+occupancy = (array >= 7) | (array < -5)
+vis = (array - array.min())/array.max()
+vis = np.uint8(cm.terrain(vis)*255)
 
-picker = GUI.Picker(vis, occupancy)
+kernel = circle_kernel(4)
+grown_obstacles = signal.convolve2d(occupancy, kernel, mode='same', boundary='fill') > 0
+
+picker = GUI.Picker(vis, grown_obstacles, array)

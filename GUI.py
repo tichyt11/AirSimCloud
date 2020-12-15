@@ -1,15 +1,14 @@
 import tkinter as tk
 import PIL.Image, PIL.ImageTk
-import numpy as np
 import search
 
 
 class Picker:
-    def __init__(self, img, occupancy_grid):
-        (h, w) = img.shape
+    def __init__(self, dem, occupancy_grid, vals):
+        (h, w) = dem.shape[:2]
+        self.h, self.w = h, w
 
         self.window = tk.Tk()
-        # self.window.attributes("-fullscreen", True)
         self.window.bind('<Escape>', self.quit)
 
         leftFrame = tk.Frame(self.window, width=w, height=h)
@@ -19,6 +18,7 @@ class Picker:
 
         self.canvas = tk.Canvas(leftFrame, relief='raised', borderwidth=1, width=w, height=h)
         self.canvas.bind('<Button-1>', self.pick)
+        self.canvas.bind('<Motion>', self.update_pos)
         self.canvas.pack(side='left', fill=tk.X, expand=True)
 
         self.info = {'Start': (0, 0), 'Goal': (0, 0)}
@@ -26,45 +26,51 @@ class Picker:
         self.label.pack(side='bottom')
         self.pos = tk.Label(rightFrame, width=20, height=2, text='mouse pos', bg='white')
         self.pos.pack(side='bottom')
-        self.canvas.bind('<Motion>', self.update_pos)
 
-        self.to_show = 'occupancy'
+        self.to_show = tk.StringVar()
+        self.to_show.set('Show occupancy')
 
         button1 = tk.Button(rightFrame, command=self.quit, width=20, text='Close', bg='white')
-        button2 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=20, text='Pick Start', bg= 'white')
-        button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=20, text='Pick Goal', bg='white')
-        button4 = tk.Button(rightFrame, command=self.compute, width=20, text='Find Path', bg='white')
-        button5 = tk.Button(rightFrame, command=self.toggle_image, width=2, text='Show '+self.image_shown, bg='white')
+        button2 = tk.Button(rightFrame, command=self.toggle_image, width=20, textvariable=self.to_show, bg='white')
+        button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=20, text='Pick Start', bg= 'white')
+        button4 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=20, text='Pick Goal', bg='white')
+        button5 = tk.Button(rightFrame, command=self.compute, width=20, text='Find Path', bg='white')
         button1.pack(side='top')
         button2.pack(side='top')
         button3.pack(side='top')
         button4.pack(side='top')
         button5.pack(side='top')
-        self.buttons = {'Start': button2, 'Goal': button3, 'Find_path': button4, 'Toggle': button5}
+        self.buttons = {'Toggle': button2, 'Start': button3, 'Goal': button4, 'Find_path': button5}
 
         self.mode = ''
         self.start = None
         self.goal = None
         self.occupancy_grid = occupancy_grid
+        self.dem = dem
+        self.vals = vals
         self.path = []
         self.path_graph = []
 
-        rgb = np.dstack([img, img, img])
-        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(rgb))
+        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dem))
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
 
         self.window.mainloop()
 
     def toggle_image(self):
-        if self.to_show == 'occupancy':
-            self.to_show = 'img'
-            # TODO show occ
+        global picture
+        if self.to_show.get() == 'Show occupancy':
+            self.to_show.set('Show elevation')
+            picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.occupancy_grid == 0))  # invert it
         else:
-            self.to_show = 'occupancy'
+            self.to_show.set('Show occupancy')
+            picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.dem))
+        self.canvas.itemconfig(self.canvas_image, image=picture)
+
 
     def update_pos(self, event):
         col, row = event.x, event.y
-        self.pos['text'] = 'Mouse at [%d, %d]' % (row, col)
+        if 0 <= col < self.w and 0 <= row < self.h:
+            self.pos['text'] = 'Mouse at [%d, %d, %.2f]' % (row, col, self.vals[row-1, col-1])
 
     def change_mode(self, mode):
         colors = {'Start': 'red', 'Goal': 'blue'}

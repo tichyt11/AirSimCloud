@@ -54,16 +54,11 @@ def main():
     # write_gps_txt(data_path, coords, ref_coords)
 
     # save_rgbs(image_path, coords, angles, env)
-    # add_exifs(image_path, coords, ref_coords)
-
     # get_cloud(coords, angles, env, data_path, normalized=normalized)
 
     # save_disps(coords, angles, env, disp_path)
-    input("Press Enter to continue...")
-    print('OK')
-    save_rgbs(coords, angles, env, image_path)
-    # size = env.w*env.h
-    # build_cloud_from_saved(coords, angles, data_path, size, env.Q, normalized=normalized)
+    # save_rgbs(coords, angles, env, image_path)
+    # build_cloud_from_saved(coords, angles, data_path, env.w*env.h, env.Q, normalized=normalized)
 
 if __name__ == "__main__":
     main()
