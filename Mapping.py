@@ -40,7 +40,7 @@ def main():
     disp_path = data_path + 'disps\\'
     normalized = True
 
-    # env = AirSimEnv()
+    env = AirSimEnv()
 
     # cam_params = (env.FOV, env.w, env.h)
     cam_params = (PI/2, 640, 360)
@@ -50,16 +50,18 @@ def main():
     coords, angles, numx = make_trajectory(rect, h=30, cam_params=cam_params)
     angles = np.array(angles)*PI/180  # angles as pitch, roll, yaw in radians
 
-    # write_xyz_txt(data_path, coords, normalized, numx-1)
+    # write_xyz_txt(data_path, coords, normalized)
     # write_gps_txt(data_path, coords, ref_coords)
 
-    # save_images(image_path, coords, angles, env)
-    # write_exifs(image_path, coords, ref_coords)
+    # save_rgbs(image_path, coords, angles, env)
+    # add_exifs(image_path, coords, ref_coords)
 
     # get_cloud(coords, angles, env, data_path, normalized=normalized)
 
     # save_disps(coords, angles, env, disp_path)
-    # save_rgbs(coords, angles, env, image_path)
+    input("Press Enter to continue...")
+    print('OK')
+    save_rgbs(coords, angles, env, image_path)
     # size = env.w*env.h
     # build_cloud_from_saved(coords, angles, data_path, size, env.Q, normalized=normalized)
 

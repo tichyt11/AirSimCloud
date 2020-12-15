@@ -1,7 +1,7 @@
 import math
 from scipy.spatial.transform import Rotation
 import cv2
-from Projections import *
+from geo import *
 import tifffile
 
 import piexif
@@ -28,7 +28,7 @@ def show(img):
     cv2.destroyAllWindows()
 
 
-def write_gps_txt(path, coords, ref_coords, index=None):  # for ODM
+def write_gps_txt(path, coords, ref_coords, index=None, form='jpeg'):  # for ODM
     precision = 1
     reflat, reflon, refalt = ref_coords
 
@@ -39,10 +39,10 @@ def write_gps_txt(path, coords, ref_coords, index=None):  # for ODM
         for i in indeces:
             x, y, z = coords[i]
             lat, lon, alt = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
-            f.write("img%d.png %.15f %.15f %.15f %f %f %f %f %f\n" % (i, lon, lat, alt, 0, 0, 0, precision, precision))
+            f.write("rgb%d.%s %.15f %.15f %.15f %f %f %f %f %f\n" % (i, form, lon, lat, alt, 0, 0, 0, precision, precision))
 
 
-def write_xyz_txt(path, coords, normalize=True, index=None):  # for COLMAP
+def write_xyz_txt(path, coords, normalize=True, index=None, form='jpeg'):  # for COLMAP
     indeces = [0, index, len(coords) - 1] if index else range(len(coords))
 
     mean = coords_mean(coords)
@@ -53,7 +53,7 @@ def write_xyz_txt(path, coords, normalize=True, index=None):  # for COLMAP
             if normalize:
                 x -= mean[0]
                 y -= mean[1]
-            f.write("img%d.png %.15f %.15f %.15f\n" % (i, x, y, z))
+            f.write("rgb%d.%s %.15f %.15f %.15f\n" % (i, form, x, y, z))
 
 
 def coords_mean(coords):
@@ -84,11 +84,11 @@ def rat2dec(rat):
     return degs/f1 + mins/f2/60 + secs/f3/3600
 
 
-def write_exifs(path, coords, ref_coords):  # for oMVG and ODM
+def add_exifs(path, coords, ref_coords, form='jpeg'):  # for oMVG and ODM
     reflat, reflon, refalt = ref_coords
 
     for i in range(len(coords)):
-        fname = path + "img%d.png" % i
+        fname = path + 'rgb%d.%s' % (i, form)
         img = Image.open(fname)
         x, y, z = coords[i]
         lat, lon, alt = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
@@ -136,20 +136,20 @@ def save_disps(coords, angles, env, path):
         disp = env.getDisparity()
 
         fname = path + 'disp%d.tif' % i
-        tifffile.imsave(fname, disp)
+        cv2.imwrite(fname, disp)
 
 
-def save_rgbs(coords, angles, env, path):
+def save_rgbs(coords, angles, env, path, form='jpeg'):
     for i in range(len(coords)):
         env.setOrientation(angles[i])
         env.setPosition(coords[i])
         rgb = env.getRGB()
 
-        fname = path + 'rgb%d.png' % i
+        fname = path + 'rgb%d.%s' % (i, form)
         cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
 
 
-def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized):
+def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized=False, form='jpeg'):
     num_images = len(coords)
     total_size = num_images*size
     with open(path + 'point_cloud.ply', 'wb') as out:
@@ -159,7 +159,7 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized
 
             disp_file = path + 'disps\\disp%d.tif' % i
             disp = tifffile.imread(disp_file)
-            rgb_file = path + 'images\\rgb%d.png' % i
+            rgb_file = path + 'images\\rgb%d.%s' % (i, form)
             colors = cv2.cvtColor(cv2.imread(rgb_file), cv2.COLOR_BGR2RGB)
 
             if normalized:

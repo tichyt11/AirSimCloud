@@ -1,0 +1,132 @@
+import tkinter as tk
+import PIL.Image, PIL.ImageTk
+import numpy as np
+import search
+
+
+class Picker:
+    def __init__(self, img, occupancy_grid):
+        (h, w) = img.shape
+
+        self.window = tk.Tk()
+        # self.window.attributes("-fullscreen", True)
+        self.window.bind('<Escape>', self.quit)
+
+        leftFrame = tk.Frame(self.window, width=w, height=h)
+        leftFrame.pack(side='left', anchor='n', fill=tk.Y, expand=False)
+        rightFrame = tk.Frame(self.window, width=100, height=h)
+        rightFrame.pack(side='right', anchor='n', fill=tk.Y, expand=False)
+
+        self.canvas = tk.Canvas(leftFrame, relief='raised', borderwidth=1, width=w, height=h)
+        self.canvas.bind('<Button-1>', self.pick)
+        self.canvas.pack(side='left', fill=tk.X, expand=True)
+
+        self.info = {'Start': (0, 0), 'Goal': (0, 0)}
+        self.label = tk.Label(rightFrame, width=20, height=4, text='', bg='white')
+        self.label.pack(side='bottom')
+        self.pos = tk.Label(rightFrame, width=20, height=2, text='mouse pos', bg='white')
+        self.pos.pack(side='bottom')
+        self.canvas.bind('<Motion>', self.update_pos)
+
+        self.to_show = 'occupancy'
+
+        button1 = tk.Button(rightFrame, command=self.quit, width=20, text='Close', bg='white')
+        button2 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=20, text='Pick Start', bg= 'white')
+        button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=20, text='Pick Goal', bg='white')
+        button4 = tk.Button(rightFrame, command=self.compute, width=20, text='Find Path', bg='white')
+        button5 = tk.Button(rightFrame, command=self.toggle_image, width=2, text='Show '+self.image_shown, bg='white')
+        button1.pack(side='top')
+        button2.pack(side='top')
+        button3.pack(side='top')
+        button4.pack(side='top')
+        button5.pack(side='top')
+        self.buttons = {'Start': button2, 'Goal': button3, 'Find_path': button4, 'Toggle': button5}
+
+        self.mode = ''
+        self.start = None
+        self.goal = None
+        self.occupancy_grid = occupancy_grid
+        self.path = []
+        self.path_graph = []
+
+        rgb = np.dstack([img, img, img])
+        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(rgb))
+        self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
+
+        self.window.mainloop()
+
+    def toggle_image(self):
+        if self.to_show == 'occupancy':
+            self.to_show = 'img'
+            # TODO show occ
+        else:
+            self.to_show = 'occupancy'
+
+    def update_pos(self, event):
+        col, row = event.x, event.y
+        self.pos['text'] = 'Mouse at [%d, %d]' % (row, col)
+
+    def change_mode(self, mode):
+        colors = {'Start': 'red', 'Goal': 'blue'}
+        self.mode = mode
+        for i in self.buttons:
+            self.buttons[i].config(bg='white')
+        self.buttons[mode].config(bg=colors[mode])
+
+    def compute(self):
+        if not (self.goal and self.start):
+            print('No goal or start node selected')
+        else:
+            start = self.info['Start']
+            goal = self.info['Goal']
+            self.path = search.astar_search(start, goal, self.occupancy_grid)
+            if self.path is None:
+                print('No path found')
+            self.build_path()
+
+    def build_path(self):
+        for i in self.path:
+            row, col = i
+            self.path_graph.append(self.draw_rect(col, row, 1, 1, 'green'))
+
+    def destroy_path(self):
+        for i in self.path_graph:
+            self.canvas.delete(i)
+        self.path_graph = []
+
+    def pick(self, event):
+        col, row = event.x, event.y
+        if self.occupancy_grid[row, col] == 1 and self.mode != '':
+            print('Grid at %d, %d is occupied' % (row, col))
+            return
+        if self.mode == 'Start':
+            self.destroy_path()
+            if not self.start:
+                self.start = self.draw_rect(col-1, row-1, 3, 3, 'red')
+            self.canvas.moveto(self.start, col-1, row-1)
+            self.buttons['Start'].config(bg='white')
+            self.info['Start'] = (row, col)
+
+        elif self.mode == 'Goal':
+            self.destroy_path()
+            if not self.goal:
+                self.goal = self.draw_rect(col-1, row-1, 3, 3, 'blue')
+            self.canvas.moveto(self.goal, col-1, row-1)
+            self.buttons['Goal'].config(bg='white')
+            self.info['Goal'] = (row, col)
+        self.mode = ''
+        self.make_info()
+
+    def quit(self, event=''):
+        self.window.quit()
+
+    def draw_rect(self, x, y, w, h, clr):
+        return self.canvas.create_rectangle(x, y, x+w, y+h, fill=clr, width=0)
+
+    def make_info(self):
+        info = ''
+        if self.start:
+            info += ('Start is at [%d, %d]\n' % self.info['Start'])
+        if self.goal:
+            info += ('Goal is at [%d, %d]\n' % self.info['Goal'])
+        self.label['text'] = info
