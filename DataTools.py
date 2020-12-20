@@ -3,7 +3,7 @@ from scipy.spatial.transform import Rotation
 import cv2
 from geo import *
 import tifffile
-
+import time
 import piexif
 from PIL import Image
 
@@ -28,7 +28,7 @@ def show(img):
     cv2.destroyAllWindows()
 
 
-def write_gps_txt(path, coords, ref_coords, index=None, form='jpeg'):  # for ODM
+def write_gps_txt(path, coords, ref_coords, index=None, form='jpg'):  # for ODM
     precision = 1
     reflat, reflon, refalt = ref_coords
 
@@ -42,7 +42,7 @@ def write_gps_txt(path, coords, ref_coords, index=None, form='jpeg'):  # for ODM
             f.write("rgb%d.%s %.15f %.15f %.15f %f %f %f %f %f\n" % (i, form, lon, lat, alt, 0, 0, 0, precision, precision))
 
 
-def write_xyz_txt(path, coords, normalize=True, index=None, form='jpeg'):  # for COLMAP
+def write_xyz_txt(path, coords, index=None, form='jpg'):  # for COLMAP
     indeces = [0, index, len(coords) - 1] if index else range(len(coords))
 
     mean = coords_mean(coords)
@@ -50,9 +50,6 @@ def write_xyz_txt(path, coords, normalize=True, index=None, form='jpeg'):  # for
     with open(path + 'xyz.txt', 'w') as f:
         for i in indeces:
             x, y, z = coords[i]
-            if normalize:
-                x -= mean[0]
-                y -= mean[1]
             f.write("rgb%d.%s %.15f %.15f %.15f\n" % (i, form, x, y, z))
 
 
@@ -62,7 +59,7 @@ def coords_mean(coords):
     return mean
 
 
-def dec2rat(num):  # TODO: this is temporary solution, it can be more elegant, is there a better way?
+def dec2rat(num):
     f1 = 1 << 10
     f2 = 1 << 10
 
@@ -84,7 +81,28 @@ def rat2dec(rat):
     return degs/f1 + mins/f2/60 + secs/f3/3600
 
 
-def add_exifs(path, coords, ref_coords, form='jpeg'):  # for oMVG and ODM
+def create_exif_bytes(lat, lon, alt):
+    zeroth_ifd = {
+                piexif.ImageIFD.XResolution: (1920, 1),
+                piexif.ImageIFD.YResolution: (1080, 1)
+            }
+    gps_ifd = {
+        piexif.GPSIFD.GPSVersionID: (2, 2, 0, 0),
+        piexif.GPSIFD.GPSLatitudeRef: 'N' if lat > 0 else 'S',
+        piexif.GPSIFD.GPSLongitudeRef: 'E' if lon > 0 else 'W',
+        piexif.GPSIFD.GPSAltitudeRef: 0 if alt > 0 else 1,
+        piexif.GPSIFD.GPSLatitude: (dec2rat(abs(lat))),
+        piexif.GPSIFD.GPSLongitude: (dec2rat(abs(lon))),
+        piexif.GPSIFD.GPSAltitude: (math.floor(abs(alt*1024)), 1024),  # multiply by 1024 for mm resolution
+        piexif.GPSIFD.GPSDOP: (1, 1024)
+    }
+
+    exif_dict = {"0th": zeroth_ifd, "GPS": gps_ifd}
+    exif_bytes = piexif.dump(exif_dict)
+    return exif_bytes
+
+
+def add_exifs(path, coords, ref_coords, form='jpg'):  # for oMVG and ODM
     reflat, reflon, refalt = ref_coords
 
     for i in range(len(coords)):
@@ -92,34 +110,23 @@ def add_exifs(path, coords, ref_coords, form='jpeg'):  # for oMVG and ODM
         img = Image.open(fname)
         x, y, z = coords[i]
         lat, lon, alt = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
-
-        zeroth_ifd = {
-            piexif.ImageIFD.XResolution: (1920, 1),
-            piexif.ImageIFD.YResolution: (1080, 1)
-        }
-        gps_ifd = {
-            piexif.GPSIFD.GPSVersionID: (2, 2, 0, 0),
-            piexif.GPSIFD.GPSLatitudeRef: 'N' if lat > 0 else 'S',
-            piexif.GPSIFD.GPSLongitudeRef: 'E' if lon > 0 else 'W',
-            piexif.GPSIFD.GPSAltitudeRef: 0 if alt > 0 else 1,
-            piexif.GPSIFD.GPSLatitude: (dec2rat(abs(lat))),
-            piexif.GPSIFD.GPSLongitude: (dec2rat(abs(lon))),
-            piexif.GPSIFD.GPSAltitude: (math.floor(abs(alt*1024)), 1024),  # multiply by 1024 for mm resolution
-            piexif.GPSIFD.GPSDOP: (1, 1024)
-        }
-
-        exif_dict = {"0th": zeroth_ifd, "GPS": gps_ifd}
-        exif_bytes = piexif.dump(exif_dict)
-        img.save('%s' % fname, exif=exif_bytes, quality='keep')
+        exif_bytes = create_exif_bytes(lat, lon, alt)
+        img.save(fname, exif=exif_bytes, quality='keep')
 
 
-def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
+def save_image_gps(image_array, gps, fname):
+    lat, lon, alt = gps
+    exif_bytes = create_exif_bytes(lat, lon, alt)
+    img = Image.fromarray(image_array)
+    img.save(fname, exif=exif_bytes, quality=95)
+
+
+def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw TODO: beware of transition to degrees
     pitch, roll, yaw = angles
 
     flipZY = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # flip z -> height+ <=> z+ and flip y for righthanded coords
-    R01 = Rotation.from_euler('ZYX', [yaw, pitch, roll])  # yaw pitch roll
-    R01 = np.array(R01.as_matrix())  # from camera coords to world coords
-    R12 = np.array(Rotation.from_euler('ZX', [PI/2, PI/2]).as_matrix())  # from image coords to 'camera' (actor) coords
+    R01 = np.array(Rotation.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix())  # yaw pitch roll from camera to world
+    R12 = np.array(Rotation.from_euler('ZX', [90, 90], degrees=True).as_matrix())  # from image coords to 'camera' (actor) coords
 
     R = flipZY @ R01 @ R12
     t = np.array(coords)[None].T  # [None] enables transposition
@@ -129,27 +136,26 @@ def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def save_disps(coords, angles, env, path):
+def save_disps(coords, angles, env, path):  # save disparities as tif images
     for i in range(len(coords)):
-        env.setOrientation(angles[i])
-        env.setPosition(coords[i])
+        env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+        time.sleep(0.2)  # depth doesnt sometimes load that fast
         disp = env.getDisparity()
 
         fname = path + 'disp%d.tif' % i
         cv2.imwrite(fname, disp)
 
 
-def save_rgbs(coords, angles, env, path, form='jpeg'):
+def save_rgbs(coords, angles, env, path, form='jpg'):  # save rgb images
     for i in range(len(coords)):
-        env.setOrientation(angles[i])
-        env.setPosition(coords[i])
+        env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
         rgb = env.getRGB()
 
         fname = path + 'rgb%d.%s' % (i, form)
         cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
 
 
-def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized=False, form='jpeg'):
+def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, form='jpg'):
     num_images = len(coords)
     total_size = num_images*size
     with open(path + 'point_cloud.ply', 'wb') as out:
@@ -162,12 +168,7 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized
             rgb_file = path + 'images\\rgb%d.%s' % (i, form)
             colors = cv2.cvtColor(cv2.imread(rgb_file), cv2.COLOR_BGR2RGB)
 
-            if normalized:
-                norm_coords = np.array(coords[i]) - coords_mean(coords)
-                T = camera2world_transform(norm_coords, angles[i])
-            else:
-                T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
-
+            T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
             P = T @ reproj_matrix
             verts = cv2.reprojectImageTo3D(disp, P)
 
@@ -179,27 +180,25 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, normalized
         print('Saving point cloud')
 
 
-def get_cloud(coords, angles, env, path, normalized=False):
+def get_cloud(coords, angles, env, path):
     num_images = len(coords)
     print('Collectign data from %d views' % num_images)
+
     total_size = num_images*env.h*env.w
+    env.setPose(coords[0], angles[0])  # init position
 
     with open(path + 'point_cloud.ply', 'wb') as out:
         out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
 
         for i in range(num_images):
-            env.setOrientation(angles[i])  # move airsim camera to coords and rotate it
-            env.setPosition(coords[i])
+            # env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
 
             disp = env.getDisparity()  # get image and disparity map from airsim camera
             colors = env.getRGB()
+            if i + 1 < num_images:
+                env.setPose(coords[i+1], angles[i+1])  # move right after taking data, for depth to load properly
 
-            if normalized:
-                norm_coords = np.array(coords[i]) - coords_mean(coords)
-                T = camera2world_transform(norm_coords, angles[i])
-            else:
-                T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
-
+            T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
             P = T @ env.Q
             verts = cv2.reprojectImageTo3D(disp, P)
 
