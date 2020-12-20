@@ -6,6 +6,7 @@ import GUI
 from matplotlib import cm
 from scipy import signal
 import matplotlib.pyplot as plt
+import math
 
 cmd = """
  [
@@ -15,7 +16,7 @@ cmd = """
          "gdaldriver":"GTiff",
          "filename":"%s",
          "output_type":"max",
-         "nodata":50,
+         "nodata":%d,
          "origin_x": %d,
          "origin_y": %d,
          "height"   : %d,
@@ -24,19 +25,11 @@ cmd = """
  ]
  """
 
-
-# def image2world(row, col, res, h, origin):
-#     x = res*col + origin[0]
-#     y = res*(h-row) + origin[1]
-#     return x, y
-
-
-# def world2image(x, y, res, h, origin):
-#     col = (x - origin[0])/res
-#     row = h - (y - origin[1])/res
-#     col = math.floor(col)
-#     row = math.floor(row)
-#     return row, col
+res = 0.1
+grid_origin = np.array([-46, -64])
+h, w = 1240, 920
+data_path = os.getcwd() + '\\data\\'
+no_data = 1000
 
 
 def circle_kernel(r):
@@ -44,14 +37,24 @@ def circle_kernel(r):
     mask = x*x + y*y <= r*r
     return mask.astype(np.uint8)
 
-res = 0.1
-grid_origin = np.array([-46, -64])
-h, w = 1240, 920
-data_path = os.getcwd() + '\\data\\'
+
+def image2world(row, col):
+    x = res*col + grid_origin[0]
+    y = res*(h-row) + grid_origin[1]
+    return x, y
+
+
+def world2image(x, y, res, h, origin):
+    col = (x - origin[0])/res
+    row = h - (y - origin[1])/res
+    col = math.floor(col)
+    row = math.floor(row)
+    return row, col
+
 
 # GTin = data_path + 'point_cloud.ply'
 GTout = data_path + 'GT_DSM.tif'
-# GTcmd = cmd % (GTin.replace('\\', '\\\\'), res, GTout.replace('\\', '\\\\'), grid_origin[0], grid_origin[1], h, w)
+# GTcmd = cmd % (GTin.replace('\\', '\\\\'), res, GTout.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
 # GTpipeline = pdal.Pipeline(GTcmd)
 # GTpipeline.execute()
 #
@@ -62,9 +65,9 @@ fout1 = data_path + 'Col_DSM.tif'
 fout2 = data_path + 'ODM_DSM.tif'
 fout3 = data_path + 'Omvgs_DSM.tif'
 
-# cmd1 = cmd % (fin1.replace('\\', '\\\\'), res, fout1.replace('\\', '\\\\'), grid_origin[0], grid_origin[1], h, w)
-# cmd2 = cmd % (fin2.replace('\\', '\\\\'), res, fout2.replace('\\', '\\\\'), grid_origin[0], grid_origin[1], h, w)
-# cmd3 = cmd % (fin3.replace('\\', '\\\\'), res, fout3.replace('\\', '\\\\'), grid_origin[0], grid_origin[1], h, w)
+# cmd1 = cmd % (fin1.replace('\\', '\\\\'), res, fout1.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
+# cmd2 = cmd % (fin2.replace('\\', '\\\\'), res, fout2.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
+# cmd3 = cmd % (fin3.replace('\\', '\\\\'), res, fout3.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
 
 # pipeline1 = pdal.Pipeline(cmd1)
 # pipeline2 = pdal.Pipeline(cmd2)
@@ -107,13 +110,6 @@ ax1.imshow(array1)
 ax2.imshow(GTarray)
 ax3.imshow(array1 > GTarray + threshold)
 plt.show()
-
-
-
-def image2world(row, col):
-    x = res*col + grid_origin[0]
-    y = res*(h-row) + grid_origin[1]
-    return x, y
 
 # wo = world2image(0, 0, res, h, grid_origin)  # world origin coords on image
 

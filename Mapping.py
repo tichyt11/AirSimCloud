@@ -64,11 +64,9 @@ def main():
 
     coords, angles, numx = make_waypoints(rect, altitude=30, cam_params=cam_params)
 
-    # write_xyz_txt(data_path, coords, form='jpg')
-    # write_gps_txt(data_path, coords, ref_coords, form='jpg')
-
-    # save_rgbs(coords, angles, env, image_path, form='jpg')
-    # add_exifs(image_path, coords, ref_coords, form='jpg')
+    coords2xyz_txt(data_path, coords, form='jpg')
+    coords2gps_txt(data_path, coords, ref_coords, form='jpg')
+    save_rgbs_gps(coords, angles, env, image_path, ref_coords, form='jpg')
     # get_cloud(coords, angles, env, data_path)
 
     # save_disps(coords, angles, env, disp_path)

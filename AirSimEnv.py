@@ -115,11 +115,32 @@ class AirSimUAV(AirSimBase):
         x, y, z = pos.x_val, -pos.y_val, -pos.z_val  # flip y and z from Airsim coordinate system
         return x, y, z
 
-    def getGeoPos(self):
-        return self.client.getGpsData().gnss.geo_point
+    def getGeoPos(self, ref_gps):
+        reflat, reflon, refalt = ref_gps
+        sim_gps = self.client.getGpsData().gnss.geo_point
+        sim_lat, sim_lon, alt = sim_gps.latitude, sim_gps.longitude, sim_gps.altitude
 
-    def getGeoOrigin(self):
-        return self.client.getHomeGeoPoint()
+        lon = sim_lat - reflat + reflon
+        lat = -(sim_lon - reflon) + reflat
+        return lat, lon, alt
+
+    def getGeoOrigin(self, ref_gps):
+        reflat, reflon, refalt = ref_gps
+        sim_gps = self.client.getHomeGeoPoint()
+        sim_lat, sim_lon, alt = sim_gps.latitude, sim_gps.longitude, sim_gps.altitude
+
+        lon = sim_lat - reflat + reflon
+        lat = -(sim_lon - reflon) + reflat
+        return lat, lon, alt
+
+        # latitude == x longitude == y in airsim
+        # +latitude == +x; +longitude == -y for me
+
+        # topocentric - x east Y north
+        # latitude is y, longitude is x
+
+        # mylong = airsimLat - reflat + reflong
+        # mylat  = -(airsimLong - reflong) + reflat
 
     def takeOff(self):
         self.client.takeoffAsync().join()
