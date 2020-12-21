@@ -195,5 +195,9 @@ class AirSimUAV(AirSimBase):
         xyz_file.close()
         print('Survey complete')
 
+    def land(self):
+        self.client.landAsync().join()
+        self.client.armDisarm(False)
+
     def setTraceLine(self, rgba=(1, 0, 0, 1), thickness=1):
         self.client.simSetTraceLine(rgba, thickness)

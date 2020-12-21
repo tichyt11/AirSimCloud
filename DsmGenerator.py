@@ -5,8 +5,9 @@ import numpy as np
 import GUI
 from matplotlib import cm
 from scipy import signal
-import matplotlib.pyplot as plt
 import math
+from AirSimEnv import AirSimUAV
+from matplotlib import pyplot as plt
 
 cmd = """
  [
@@ -25,11 +26,11 @@ cmd = """
  ]
  """
 
-res = 0.1
-grid_origin = np.array([-46, -64])
-h, w = 1240, 920
-data_path = os.getcwd() + '\\data\\'
-no_data = 1000
+RES = 0.3
+grid_origin = np.array([-10, -20])
+h, w = 440, 500
+data_path = os.getcwd() + '\\unnormalized_data\\'
+NODATA = 1000
 
 
 def circle_kernel(r):
@@ -39,9 +40,16 @@ def circle_kernel(r):
 
 
 def image2world(row, col):
-    x = res*col + grid_origin[0]
-    y = res*(h-row) + grid_origin[1]
+    x = RES*col + grid_origin[0]
+    y = RES*(h-row) + grid_origin[1]
     return x, y
+
+
+def image2worldXYZ(row, col, array, bias):
+    z = array[row, col] + bias
+    x = RES * col + grid_origin[0]
+    y = RES * (h - row) + grid_origin[1]
+    return x, y, z
 
 
 def world2image(x, y, res, h, origin):
@@ -52,71 +60,85 @@ def world2image(x, y, res, h, origin):
     return row, col
 
 
-# GTin = data_path + 'point_cloud.ply'
-GTout = data_path + 'GT_DSM.tif'
-# GTcmd = cmd % (GTin.replace('\\', '\\\\'), res, GTout.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
-# GTpipeline = pdal.Pipeline(GTcmd)
-# GTpipeline.execute()
-#
-# fin1 = data_path + 'ColCloud.las'
-# fin2 = data_path + 'ODMCloud.las'
-# fin3 = data_path + 'Omvgs_Cloud.las'
+def createDSM(fin, fout):
+    print('Creating %s' % fout)
+    command = cmd % (fin.replace('\\', '\\\\'), RES, fout.replace('\\', '\\\\'), NODATA,
+                     grid_origin[0], grid_origin[1], h, w)
+    pipeline = pdal.Pipeline(command)
+    pipeline.execute()
+    dsm = tifffile.imread(fout)
+    return dsm
+
+
+def loadDSM(fname):
+    return tifffile.imread(fname)
+
+
+def generateMetrics(dsm, groundtruth, threshold):
+    mask = groundtruth == NODATA
+    groundtruth = np.ma.masked_array(groundtruth, mask=mask)
+    dsm = np.ma.masked_array(dsm, mask=mask)  # take out only values for which gt is available
+
+    valid = (dsm == NODATA).sum()  # number of elements which have valid data
+
+    dsm = np.ma.masked_array(dsm, mask=(dsm == NODATA))
+    num_less = (dsm < groundtruth - threshold).sum()  # number of elements less than GT by at least threshold
+    num_more = (dsm > groundtruth + threshold).sum()  # number of elements more than GT by at least threshold
+
+    metrics = {'valid': valid, 'num_less': num_less, 'num_more': num_more}
+    return metrics
+
+
+def generateOccupancyGrid(dsm, min_val, max_val):
+    occupancy = (dsm < min_val) | (dsm > max_val)
+    plt.show()
+
+    kernel = circle_kernel(4)
+    grown_obstacles = signal.convolve2d(occupancy, kernel, mode='same', boundary='fill') > 0
+    return grown_obstacles
+
+
+GTCloud = data_path + 'Clouds\\GT.ply'
+GTDsm = data_path + 'DSMs\\GT_DSM.tif'
+
+odm_cloud = data_path + 'Clouds\\ODMCloud.las'
+odm_dsm = data_path + 'DSMs\\ODM_DSM.tif'
+
+fin1 = data_path + 'ColCloud.las'
+fin3 = data_path + 'Omvgs_Cloud.las'
 fout1 = data_path + 'Col_DSM.tif'
-fout2 = data_path + 'ODM_DSM.tif'
 fout3 = data_path + 'Omvgs_DSM.tif'
 
-# cmd1 = cmd % (fin1.replace('\\', '\\\\'), res, fout1.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
-# cmd2 = cmd % (fin2.replace('\\', '\\\\'), res, fout2.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
-# cmd3 = cmd % (fin3.replace('\\', '\\\\'), res, fout3.replace('\\', '\\\\'), no_data, grid_origin[0], grid_origin[1], h, w)
 
-# pipeline1 = pdal.Pipeline(cmd1)
-# pipeline2 = pdal.Pipeline(cmd2)
-# pipeline3 = pdal.Pipeline(cmd3)
-# pipeline1.execute()
-# pipeline2.execute()
-# pipeline3.execute()
+def main():
 
-GTarray = tifffile.imread(GTout)
-array1 = tifffile.imread(fout1)
-array2 = tifffile.imread(fout2)
-array3 = tifffile.imread(fout3)
+    GTarray = createDSM(odm_cloud, odm_dsm)
+    # array1 = createDSM(fin1, fout1)
+    # array2 = createDSM(fin2, fout2)
+    # array3 = createDSM(fin3, fout3)
 
-mask = GTarray == 50
-num_valid = mask.size - mask.sum()  # number of GT elements with valid data
-GTarray = np.ma.masked_array(GTarray, mask=mask)
-array1 = np.ma.masked_array(array1, mask=mask)
-array2 = np.ma.masked_array(array2, mask=mask)  # erase entries that are not in GT
-array3 = np.ma.masked_array(array3, mask=mask)
+    # valid_gt = GTarray != NODATA
+    # num_valid = valid_gt.sum()  # number of GT elements with valid data
 
-comp1 = (array1 != 50).sum()
-comp2 = (array2 != 50).sum()
-comp3 = (array3 != 50).sum()
-print('completeness - colmap, odm, omvgs :', comp1, comp2, comp3)
+    # wo = world2image(0, 0, RES, h, grid_origin)  # world origin coords on image
+    array = GTarray
+    vis = np.ma.masked_array(array, mask=GTarray==NODATA)
+    vis = (vis - vis.min())/vis.max()  # normalize
+    vis = np.uint8(cm.terrain(vis)*255)  # render as rgb for visualization
 
-threshold = 0.5
-num_s1 = (array1 < GTarray - threshold).sum()
-num_s2 = (array2 < GTarray - threshold).sum()
-num_s3 = (array3 < GTarray - threshold).sum()
-print('smaller than GT by more than %.1f meters - colmap , odm, omvgs:' % threshold, num_s1, num_s2, num_s3)
+    occupancy = generateOccupancyGrid(array, -11, 3)
 
-threshold = 0.5
-num_b1 = ((array1 > GTarray + threshold) & (array1 != 50)).sum()
-num_b2 = ((array2 > GTarray + threshold) & (array2 != 50)).sum()
-num_b3 = ((array3 > GTarray + threshold) & (array3 != 50)).sum()
-print('bigger than GT by more than %.1f meters - colmap , odm:' % threshold, num_b1, num_b2, num_b3)
+    picker = GUI.Picker(vis, occupancy, array, image2world)
+    path = picker.path
 
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-ax1.imshow(array1)
-ax2.imshow(GTarray)
-ax3.imshow(array1 > GTarray + threshold)
-plt.show()
+    bias = 1.5
+    actual_path = [image2worldXYZ(x, y, array, bias) for x, y in path]
+    env = AirSimUAV()
+    env.takeOff()
+    env.setTraceLine()
+    env.moveOnPath(actual_path)
+    env.land()
 
-# wo = world2image(0, 0, res, h, grid_origin)  # world origin coords on image
 
-# occupancy = (array >= 7) | (array < -5)
-# vis = (array - array.min())/array.max()
-# vis = np.uint8(cm.terrain(vis)*255)
-
-# kernel = circle_kernel(4)
-# grown_obstacles = signal.convolve2d(occupancy, kernel, mode='same', boundary='fill') > 0
-# picker = GUI.Picker(vis, grown_obstacles, array, image2world)
+if __name__ == '__main__':
+    main()

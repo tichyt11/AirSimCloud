@@ -52,7 +52,7 @@ class Picker:
         self.path_graph = []
         self.image2world = image2world
 
-        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dem))
+        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dem, mode='RGBA'))
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
 
         self.window.mainloop()
@@ -66,7 +66,6 @@ class Picker:
             self.to_show.set('Show occupancy')
             picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.dem))
         self.canvas.itemconfig(self.canvas_image, image=picture)
-
 
     def update_pos(self, event):
         col, row = event.x, event.y
@@ -87,15 +86,15 @@ class Picker:
         else:
             start = self.info['Start']
             goal = self.info['Goal']
-            self.path = search.astar_search(start, goal, self.occupancy_grid)
+            self.path = search.astar_search(start, goal, self.occupancy_grid, self.vals)
             if self.path is None:
                 print('No path found')
-            self.build_path()
+            self.show_path()
 
-    def build_path(self):
+    def show_path(self):
         for i in self.path:
             row, col = i
-            self.path_graph.append(self.draw_rect(col, row, 1, 1, 'green'))
+            self.path_graph.append(self.draw_rect(col, row, 1, 1, '#0f0'))
 
     def destroy_path(self):
         for i in self.path_graph:
