@@ -131,8 +131,8 @@ def main():
     picker = GUI.Picker(vis, occupancy, array, image2world)
     path = picker.path
 
-    bias = 1.5
-    actual_path = [image2worldXYZ(x, y, array, bias) for x, y in path]
+    altitude = 1
+    actual_path = [image2worldXYZ(x, y, array, altitude) for x, y in path]
     env = AirSimUAV()
     env.takeOff()
     env.setTraceLine()

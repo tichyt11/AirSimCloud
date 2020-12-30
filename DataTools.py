@@ -124,11 +124,13 @@ def save_rgbs_gps(coords, angles, env, path, ref_origin, form='jpg'):
 
     for i in range(len(coords)):
         env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+        time.sleep(0.3)
         rgb = env.getRGB()
         x, y, z = coords[i]
         gps = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
         fname = path + 'rgb%d.%s' % (i, form)
         save_image_gps(rgb, gps, fname)
+        print('Saved image %d' % i)
 
 
 def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw

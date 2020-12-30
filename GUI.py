@@ -92,9 +92,10 @@ class Picker:
             self.show_path()
 
     def show_path(self):
-        for i in self.path:
-            row, col = i
-            self.path_graph.append(self.draw_rect(col, row, 1, 1, '#0f0'))
+        for i in range(len(self.path) - 1):
+            row0, col0 = self.path[i]
+            row1, col1 = self.path[i + 1]
+            self.path_graph.append(self.draw_line(col0, row0, col1, row1, '#0f0'))
 
     def destroy_path(self):
         for i in self.path_graph:
@@ -129,6 +130,9 @@ class Picker:
 
     def draw_rect(self, x, y, w, h, clr):
         return self.canvas.create_rectangle(x, y, x+w, y+h, fill=clr, width=0)
+
+    def draw_line(self, x0, y0, x1, y1, clr):
+        return self.canvas.create_line(x0, y0, x1, y1, dash=(4, 2), fill=clr)
 
     def make_info(self):
         info = ''

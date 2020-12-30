@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 
 PI = math.pi
 cwd = os.getcwd()
-data_path = cwd + '\\unnormalized_data\\'
+data_path = cwd + '\\forest_maze\\'
 image_path = data_path + 'images\\'
 disp_path = data_path + 'disps\\'
 
@@ -60,7 +60,9 @@ def main():
 
     cam_params = (env.FOV, env.w, env.h)
     ref_coords = (reflat, reflon, refalt) = (0, 3, 0)  # ref lat, lon and alt for topocentric coords
-    rect = (0, 0, 140, 100)
+    # rect = (0, 0, 140, 100)
+    rect = (0, -60, 200, 120)
+
 
     coords, angles, numx = make_waypoints(rect, altitude=30, cam_params=cam_params)
 
