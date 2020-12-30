@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage.draw.draw import line
 
+
 def astar_search(start, goal, occupancy_grid, vals, bias=1):
 
     def lineOfsight(n1, n2):

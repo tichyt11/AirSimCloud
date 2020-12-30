@@ -1,8 +1,9 @@
-from AirSimEnv import AirSimUAV
-from Mapping import make_waypoints, rotate_waypoints
+from tools.AirSimEnv import AirSimUAV
+from Mapping import make_waypoints
 import math
 import os
-from geo import lla_from_topocentric
+import numpy as np
+from tools.DsmHandler import DsmHandler
 
 PI = math.pi
 
@@ -16,15 +17,24 @@ def main():
     rect = (0, 0, 120, 80)
     coords, angles, _ = make_waypoints(rect, altitude=30, cam_params=cam_params)
 
-    env = AirSimUAV()
-    env.drawPoints(coords)
-    env.takeOff()
     # env.survey(coords, angles, survey_path)
-    env.moveTo([40, 40, 20])
-    gps = env.getGeoPos(ref_coords)
-    x, y, z = env.getXYZPos()
-    print(lla_from_topocentric(x, y, z, reflat, reflon, refalt))
-    print(gps)
+    # env.moveTo([40, 40, 20])
 
-if __name__=='__main__':
+    cloud = survey_path + 'cloud.ply'
+    grid_origin = np.array([-10, -20])  # bottom left corner of dsm world coordinates
+    h, w = 440, 500
+    rel_alt, min_alt, max_alt = 1, -5, 10
+
+    handler = DsmHandler(grid_origin, h, w, 0.3, 1000)
+    dsm = handler.createDSM(cloud)
+    actual_path = handler.GeneratePath(dsm, rel_alt, min_alt, max_alt)
+
+    env = AirSimUAV()
+    env.takeOff()
+    env.setTraceLine()
+    env.moveOnPath(actual_path)
+    env.land()
+
+
+if __name__ == '__main__':
     main()
