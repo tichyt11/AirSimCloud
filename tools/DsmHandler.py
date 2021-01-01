@@ -7,6 +7,7 @@ from matplotlib import cm
 from scipy import signal
 import math
 from matplotlib import pyplot as plt
+from search import astar_search
 
 cmd = """
  [
@@ -75,21 +76,21 @@ class DsmHandler:
     def loadDSM(self, fname):
         return tifffile.imread(fname)
 
-    def generateMetrics(self, dsm, groundtruth, threshold):
-        mask = groundtruth == self.no_data
-        groundtruth = np.ma.masked_array(groundtruth, mask=mask)
-        dsm = np.ma.masked_array(dsm, mask=mask)  # take out only values for which gt is available
+    def generateMetrics(self, dsm, ground_truth, threshold):
+        mask = ground_truth == self.no_data
+        groundtruth = np.ma.masked_array(ground_truth, mask=mask)
+        array = np.ma.masked_array(dsm, mask=mask)  # take out only values for which gt is available
 
-        valid = (dsm == self.no_data).sum()  # number of elements which have valid data
+        invalid = (array == self.no_data).sum()  # number of elements which have invalid data
+        array = np.ma.masked_array(dsm, mask=(dsm == self.no_data))
+        num_less = (array < groundtruth - threshold).sum()  # number of elements less than GT by at least threshold
+        num_more = (array > groundtruth + threshold).sum()  # number of elements more than GT by at least threshold
 
-        dsm = np.ma.masked_array(dsm, mask=(dsm == self.no_data))
-        num_less = (dsm < groundtruth - threshold).sum()  # number of elements less than GT by at least threshold
-        num_more = (dsm > groundtruth + threshold).sum()  # number of elements more than GT by at least threshold
-
-        metrics = {'valid': valid, 'num_less': num_less, 'num_more': num_more}
+        metrics = {'invalid': invalid, 'num_less': num_less, 'num_more': num_more}
         return metrics
 
     def generateOccupancyGrid(self, dsm, min_val, max_val, grow_size=4):
+        dsm = np.ma.masked_array(dsm, mask=(dsm == self.no_data))
         occupancy = (dsm < min_val) | (dsm > max_val)
         plt.show()
 
@@ -97,7 +98,7 @@ class DsmHandler:
         grown_obstacles = signal.convolve2d(occupancy, kernel, mode='same', boundary='fill') > 0
         return grown_obstacles
 
-    def GeneratePath(self, dsm, rel_alt, min_alt, max_alt):
+    def PathPicker(self, dsm, rel_alt, min_alt, max_alt):
         vis = np.ma.masked_array(dsm, mask=dsm == self.no_data)
         vis = (vis - vis.min())/vis.max()  # normalize
         vis = np.uint8(cm.terrain(vis)*255)  # render as rgb for visualization
@@ -106,6 +107,12 @@ class DsmHandler:
 
         picker = GUI.Picker(vis, occupancy, dsm, self.image2world)
         world_path = [self.image2worldXYZ(x, y, dsm, rel_alt) for x, y in picker.path]
+        return world_path
+
+    def GeneratePath(self, dsm, start, goal, rel_alt, min_alt, max_alt, grow_size=4):
+        occupancy = self.generateOccupancyGrid(dsm, min_alt, max_alt, grow_size)
+        grid_path = astar_search(start, goal, occupancy_grid=occupancy, vals=dsm)
+        world_path = [self.image2worldXYZ(x, y, dsm, rel_alt) for x, y in grid_path]
         return world_path
 
 
@@ -130,7 +137,7 @@ def main():
     handler = DsmHandler(grid_origin, h, w, 0.3, 1000)
     dsm = handler.createDSM(odm_cloud)
 
-    actual_path = handler.GeneratePath(dsm, 1, -11, 5)
+    actual_path = handler.PathPicker(dsm, 1, -11, 5)
 
 
 if __name__ == '__main__':

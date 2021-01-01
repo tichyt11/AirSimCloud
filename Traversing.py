@@ -27,7 +27,7 @@ def main():
 
     handler = DsmHandler(grid_origin, h, w, 0.3, 1000)
     dsm = handler.createDSM(cloud)
-    actual_path = handler.GeneratePath(dsm, rel_alt, min_alt, max_alt)
+    actual_path = handler.PathPicker(dsm, rel_alt, min_alt, max_alt)
 
     env = AirSimUAV()
     env.takeOff()
