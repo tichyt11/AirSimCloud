@@ -10,47 +10,46 @@ DOUBLE_TYPE = np.double
 BOOL_TYPE = np.bool
 Infinite = float('inf')
 
-def _siftdown(heap, startpos, pos):
+cdef void _siftdown(heap, Py_ssize_t startpos, Py_ssize_t pos):
+    cdef SearchNode newitem, parent
+    cdef Py_ssize_t parentpos
     newitem = heap[pos]
-    # Follow the path to the root, moving parents down until finding a place
-    # newitem fits.
     while pos > startpos:
         parentpos = (pos - 1) >> 1
         parent = heap[parentpos]
-        if newitem < parent:
+        if newitem.fscore < parent.fscore:
             heap[pos] = parent
             pos = parentpos
             continue
         break
     heap[pos] = newitem
 
-def _siftup(heap, pos):
+cdef void _siftup(heap, Py_ssize_t pos):
+    cdef Py_ssize_t endpos, startpos, rightpos, childpos
+    cdef SearchNode newitem, right, child
     endpos = len(heap)
     startpos = pos
     newitem = heap[pos]
-    # Bubble up the smaller child until hitting a leaf.
     childpos = 2*pos + 1    # leftmost child position
     while childpos < endpos:
-        # Set childpos to index of smaller child.
         rightpos = childpos + 1
-        if rightpos < endpos and not heap[childpos] < heap[rightpos]:
-            childpos = rightpos
-        # Move the smaller child up.
+        if rightpos < endpos:
+            right = heap[rightpos]
+            child = heap[childpos]
+            if not child.fscore < right.fscore:
+                childpos = rightpos
         heap[pos] = heap[childpos]
         pos = childpos
         childpos = 2*pos + 1
-    # The leaf at pos is empty now.  Put newitem there, and bubble it up
-    # to its final resting place (by sifting its parents down).
     heap[pos] = newitem
     _siftdown(heap, startpos, pos)
 
-def heappush(heap, item):
-    """Push item onto heap, maintaining the heap invariant."""
+cdef void heappush(heap, SearchNode item):
     heap.append(item)
     _siftdown(heap, 0, len(heap)-1)
 
-def heappop(heap):
-    """Pop the smallest item off the heap, maintaining the heap invariant."""
+cdef SearchNode heappop(heap):
+    cdef SearchNode lastelt, returnitem
     lastelt = heap.pop()    # raises appropriate IndexError if heap is empty
     if heap:
         returnitem = heap[0]
@@ -123,9 +122,6 @@ cdef class SearchNode:
         self.closed = False
         self.out_openset = True
         self.came_from = None
-
-    def __lt__(self, SearchNode b):
-        return self.fscore < b.fscore
 
 ctypedef struct node:
     tile data
