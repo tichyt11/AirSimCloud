@@ -1,26 +1,115 @@
 import numpy as np
 cimport numpy as np
-from skimage.draw.draw import line
 from libc.math cimport sqrt, fabs
-
+from libc.stdlib cimport abs as cabs
 
 ctypedef np.uint8_t uint8
+ctypedef (Py_ssize_t, Py_ssize_t) tile
+
 DOUBLE_TYPE = np.double
 BOOL_TYPE = np.bool
 Infinite = float('inf')
-ctypedef (Py_ssize_t, Py_ssize_t) tile
 
-ctypedef struct node:
-    tile data
-    double gscore, fscore
-    bint closed, out_openset
-    node *came_from
+def _siftdown(heap, startpos, pos):
+    newitem = heap[pos]
+    # Follow the path to the root, moving parents down until finding a place
+    # newitem fits.
+    while pos > startpos:
+        parentpos = (pos - 1) >> 1
+        parent = heap[parentpos]
+        if newitem < parent:
+            heap[pos] = parent
+            pos = parentpos
+            continue
+        break
+    heap[pos] = newitem
 
-cdef init_node(node n, tile data, double gscore, double fscore):
-    n.data = data
-    n.gscore = gscore
-    n.fscore = fscore
-    n.came_from = NULL
+def _siftup(heap, pos):
+    endpos = len(heap)
+    startpos = pos
+    newitem = heap[pos]
+    # Bubble up the smaller child until hitting a leaf.
+    childpos = 2*pos + 1    # leftmost child position
+    while childpos < endpos:
+        # Set childpos to index of smaller child.
+        rightpos = childpos + 1
+        if rightpos < endpos and not heap[childpos] < heap[rightpos]:
+            childpos = rightpos
+        # Move the smaller child up.
+        heap[pos] = heap[childpos]
+        pos = childpos
+        childpos = 2*pos + 1
+    # The leaf at pos is empty now.  Put newitem there, and bubble it up
+    # to its final resting place (by sifting its parents down).
+    heap[pos] = newitem
+    _siftdown(heap, startpos, pos)
+
+def heappush(heap, item):
+    """Push item onto heap, maintaining the heap invariant."""
+    heap.append(item)
+    _siftdown(heap, 0, len(heap)-1)
+
+def heappop(heap):
+    """Pop the smallest item off the heap, maintaining the heap invariant."""
+    lastelt = heap.pop()    # raises appropriate IndexError if heap is empty
+    if heap:
+        returnitem = heap[0]
+        heap[0] = lastelt
+        _siftup(heap, 0)
+        return returnitem
+    return lastelt
+
+cdef Py_ssize_t cmax(Py_ssize_t a, Py_ssize_t b):
+    if a > b:
+        return a
+    else:
+        return b
+
+cdef _line(Py_ssize_t r0, Py_ssize_t c0, Py_ssize_t r1, Py_ssize_t c1):  # from skimage/draw
+    cdef char steep = 0
+    cdef Py_ssize_t r = r0
+    cdef Py_ssize_t c = c0
+    cdef Py_ssize_t dr = cabs(r1 - r0)
+    cdef Py_ssize_t dc = cabs(c1 - c0)
+    cdef Py_ssize_t sr, sc, d, i
+
+    cdef Py_ssize_t num_tiles = cmax(dc, dr) + 1
+    cdef Py_ssize_t[::1] rr = np.zeros(num_tiles, dtype=np.intp)
+    cdef Py_ssize_t[::1] cc = np.zeros(num_tiles, dtype=np.intp)
+
+    with nogil:
+        if (c1 - c) > 0:
+            sc = 1
+        else:
+            sc = -1
+        if (r1 - r) > 0:
+            sr = 1
+        else:
+            sr = -1
+        if dr > dc:
+            steep = 1
+            c, r = r, c
+            dc, dr = dr, dc
+            sc, sr = sr, sc
+        d = (2 * dr) - dc
+
+        for i in range(dc):
+            if steep:
+                rr[i] = c
+                cc[i] = r
+            else:
+                rr[i] = r
+                cc[i] = c
+            while d >= 0:
+                r = r + sr
+                d = d - (2 * dc)
+            c = c + sc
+            d = d + (2 * dr)
+
+        rr[dc] = r1
+        cc[dc] = c1
+
+    return rr, cc, dc + 1
 
 cdef class SearchNode:
     cdef public tile data
@@ -35,65 +124,26 @@ cdef class SearchNode:
         self.out_openset = True
         self.came_from = None
 
-def heappush(heap, SearchNode item):
-    heap.append(item)
-    _siftdown(heap, 0, len(heap)-1)
+    def __lt__(self, SearchNode b):
+        return self.fscore < b.fscore
 
-def heappop(heap):
-    cdef SearchNode lastelt, returnitem
-    lastelt = heap.pop()    # raises appropriate IndexError if heap is empty
-    if len(heap) > 0:
-        returnitem = heap[0]
-        heap[0] = lastelt
-        _siftup(heap, 0)
-        return returnitem
-    return lastelt
+ctypedef struct node:
+    tile data
+    double gscore, fscore
+    bint closed, out_openset
+    node *came_from
 
-def _siftdown(heap, Py_ssize_t startpos, Py_ssize_t pos):
-    cdef SearchNode newitem, parent
-    cdef Py_ssize_t parentpos
-    newitem = heap[pos]
-    # Follow the path to the root, moving parents down until finding a place
-    # newitem fits.
-    while pos > startpos:
-        parentpos = (pos - 1) >> 1
-        parent = heap[parentpos]
-        if newitem.fscore < parent.fscore:
-            heap[pos] = parent
-            pos = parentpos
-            continue
-        break
-    heap[pos] = newitem
-
-def _siftup(heap, Py_ssize_t pos):
-    cdef SearchNode newitem, child, right
-    cdef Py_ssize_t endpos, startpos, childpos, rightpos
-    endpos = len(heap)
-    startpos = pos
-    newitem = heap[pos]
-    # Bubble up the smaller child until hitting a leaf.
-    childpos = 2*pos + 1    # leftmost child position
-    while childpos < endpos:
-        # Set childpos to index of smaller child.
-        rightpos = childpos + 1
-        if rightpos < endpos:
-            child = heap[childpos]
-            right = heap[rightpos]
-            if not child.fscore < right.fscore:
-                childpos = rightpos
-        # Move the smaller child up.
-        heap[pos] = heap[childpos]
-        pos = childpos
-        childpos = 2*pos + 1
-    # The leaf at pos is empty now.  Put newitem there, and bubble it up
-    # to its final resting place (by sifting its parents down).
-    heap[pos] = newitem
-    _siftdown(heap, startpos, pos)
+cdef init_node(node *n, tile data, double gscore, double fscore):
+    cdef node *ptr = n
+    ptr.data = data
+    ptr.gscore = gscore
+    ptr.fscore = fscore
+    ptr.came_from = NULL
 
 class SearchNodeDict(dict):
 
-    def __missing__(self, k):
-        v = SearchNode(k)
+    def __missing__(self, tile k):
+        cdef SearchNode v = SearchNode(k)
         self.__setitem__(k, v)
         return v
 
@@ -106,7 +156,7 @@ cdef double dist(Py_ssize_t x0, Py_ssize_t y0, Py_ssize_t x1, Py_ssize_t y1):
 cdef bint in_bounds(Py_ssize_t row, Py_ssize_t col, Py_ssize_t h, Py_ssize_t w):
     return 0 <= row < h and 0 <= col < w
 
-cpdef double heuristic(n0, n1):
+cdef double heuristic(tile n0, tile n1):
     r0 = n0[0]
     c0 = n0[1]
     r1 = n1[0]
@@ -129,10 +179,7 @@ cdef class ThetaStar:
         self.occ_view = np.ubyte(occupancy_grid)
         self.alt = alt
 
-    def lineOfsight(self, n0, n1):
-        if not n0:
-            print('no came_from Node')
-            return 0
+    cdef bint lineOfsight(self, tile n0, tile n1):
         cdef Py_ssize_t[::1] rs
         cdef Py_ssize_t[::1] cs
         cdef Py_ssize_t  num_tiles, i, r0, r1, c0, c1, r, c
@@ -146,8 +193,7 @@ cdef class ThetaStar:
         z0 = self.vals_view[r0, c0]
         z1 = self.vals_view[r1, c1]
 
-        rs, cs = line(r0, c0, r1, c1)
-        num_tiles = len(rs)
+        rs, cs, num_tiles = _line(r0, c0, r1, c1)
 
         difz = z1 - z0
         halfinc = difz / ((2 * (num_tiles - 1)))
@@ -170,7 +216,7 @@ cdef class ThetaStar:
 
         return 1
 
-    def heuristic_cost_estimate(self, tile current, tile goal):
+    cdef double heuristic_cost_estimate(self, tile current, tile goal):
         cdef Py_ssize_t r0, c0, r1, c1
         r0 = current[0]
         c0 = current[1]
@@ -178,7 +224,7 @@ cdef class ThetaStar:
         c1 = goal[1]
         return dist(r0, c0, r1, c1)
 
-    def distance_between(self, n0, n1):
+    cdef double distance_between(self, tile n0, tile n1):
         cdef Py_ssize_t r0, c0, r1, c1
         cdef double height_diff
 
@@ -191,37 +237,42 @@ cdef class ThetaStar:
             height_diff *= 100
         return dist(r0, c0, r1, c1) + height_diff
 
-    def neighbors(self, node):
-        cdef Py_ssize_t r, c
-        r = node[0]
-        c = node[1]
+    cdef neighbors(self, tile n):
+        cdef Py_ssize_t r, c, i, rr, cc
+        ret = []
+        r = n[0]
+        c = n[1]
         cdef tile[8] drs = [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
-        return [(r + i[0], c + i[1]) for i in drs if in_bounds(r + i[0], c + i[1], self.h, self.w) and self.occ_view[r + i[0], c + i[1]] == 0]
+        for i in range(8):
+            rr = r + drs[i][0]
+            cc = c + drs[i][1]
+            if in_bounds(rr, cc, self.h, self.w) and self.occ_view[rr, cc] == 0:
+                ret.append((rr, cc))
+        return ret
+        # return [(r + i[0], c + i[1]) for i in drs if in_bounds(r + i[0], c + i[1], self.h, self.w) and self.occ_view[r + i[0], c + i[1]] == 0]
 
-    def reconstruct_path(self, last, reversePath=False):
+    def reconstruct_path(self, SearchNode last):
+        cdef SearchNode current
         def _gen():
             current = last
             while current:
                 yield current.data
                 current = current.came_from
-        if reversePath:
-            return list(_gen())
-        else:
-            return list(reversed(list(_gen())))
+        return reversed(list(_gen()))
 
-    def thetastar(self, start, goal, reversePath=False):
-        cdef SearchNode startNode, current, neighbor
+    def thetastar(self, tile start, tile goal, reversePath=False):
+        cdef SearchNode current, neighbor
         if is_goal_reached(start, goal):
             return [start]
         searchNodes = SearchNodeDict()
         startNode = searchNodes[start] = SearchNode(
-            start, gscore=.0, fscore=self.heuristic_cost_estimate(start, goal))
+            start, .0, self.heuristic_cost_estimate(start, goal))
         openSet = []
         heappush(openSet, startNode)
         while openSet:
             current = heappop(openSet)
             if is_goal_reached(current.data, goal):
-                return self.reconstruct_path(current, reversePath)
+                return self.reconstruct_path(current)
             current.out_openset = True
             current.closed = True
             for neighbor in map(lambda n: searchNodes[n], self.neighbors(current.data)):
