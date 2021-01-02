@@ -1,11 +1,11 @@
 import tkinter as tk
 import PIL.Image, PIL.ImageTk
-import search
+import tools.cython_files.theta_star as search
 
 
 class Picker:
-    def __init__(self, dem, occupancy_grid, vals, image2world):
-        (h, w) = dem.shape[:2]
+    def __init__(self, dsm, occupancy_grid, vals, image2world):
+        (h, w) = dsm.shape[:2]
         self.h, self.w = h, w
 
         self.window = tk.Tk()
@@ -46,13 +46,14 @@ class Picker:
         self.start = None
         self.goal = None
         self.occupancy_grid = occupancy_grid
-        self.dem = dem
+        self.dsm = dsm
         self.vals = vals
         self.path = []
         self.path_graph = []
         self.image2world = image2world
+        self.PathFinder = search.PathFinder(occupancy_grid, vals)
 
-        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dem, mode='RGBA'))
+        picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dsm, mode='RGBA'))
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
 
         self.window.mainloop()
@@ -64,7 +65,7 @@ class Picker:
             picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.occupancy_grid == 0))  # invert it
         else:
             self.to_show.set('Show occupancy')
-            picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.dem))
+            picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.dsm))
         self.canvas.itemconfig(self.canvas_image, image=picture)
 
     def update_pos(self, event):
@@ -86,7 +87,7 @@ class Picker:
         else:
             start = self.info['Start']
             goal = self.info['Goal']
-            self.path = search.astar_search(start, goal, self.occupancy_grid, self.vals)
+            self.path = self.PathFinder.thetastar(start, goal)
             if self.path is None:
                 print('No path found')
             self.show_path()
