@@ -11,54 +11,6 @@ DOUBLE_TYPE = np.double
 BOOL_TYPE = np.bool
 Infinite = float('inf')
 
-cdef void _siftdown(heap, Py_ssize_t startpos, Py_ssize_t pos):
-    cdef SearchNode newitem, parent
-    cdef Py_ssize_t parentpos
-    newitem = heap[pos]
-    while pos > startpos:
-        parentpos = (pos - 1) >> 1
-        parent = heap[parentpos]
-        if newitem.fscore < parent.fscore:
-            heap[pos] = parent
-            pos = parentpos
-            continue
-        break
-    heap[pos] = newitem
-
-cdef void _siftup(heap, Py_ssize_t pos):
-    cdef Py_ssize_t endpos, startpos, rightpos, childpos
-    cdef SearchNode newitem, right, child
-    endpos = len(heap)
-    startpos = pos
-    newitem = heap[pos]
-    childpos = 2*pos + 1    # leftmost child position
-    while childpos < endpos:
-        rightpos = childpos + 1
-        if rightpos < endpos:
-            right = heap[rightpos]
-            child = heap[childpos]
-            if not child.fscore < right.fscore:
-                childpos = rightpos
-        heap[pos] = heap[childpos]
-        pos = childpos
-        childpos = 2*pos + 1
-    heap[pos] = newitem
-    _siftdown(heap, startpos, pos)
-
-cdef void heappush(heap, SearchNode item):
-    heap.append(item)
-    _siftdown(heap, 0, len(heap)-1)
-
-cdef SearchNode heappop(heap):
-    cdef SearchNode lastelt, returnitem
-    lastelt = heap.pop()    # raises appropriate IndexError if heap is empty
-    if heap:
-        returnitem = heap[0]
-        heap[0] = lastelt
-        _siftup(heap, 0)
-        return returnitem
-    return lastelt
-
 cdef Py_ssize_t cmax(Py_ssize_t a, Py_ssize_t b):
     if a > b:
         return a
@@ -273,6 +225,7 @@ cdef class ThetaStar:
         fastHeap = FastUpdateBinaryHeap(max_reference=self.w*self.h-1)  # push(val, ref), value_of(ref), val, ref = pop()
         cdef REFERENCE_T ref  # PY_ssize_t
         cdef VALUE_T val  # double
+        cdef tile current_tile
 
         cdef SearchNode current, neighbor
         if is_goal_reached(start, goal):
@@ -281,11 +234,8 @@ cdef class ThetaStar:
         cdef double fscore = self.heuristic_cost_estimate(start, goal)
         startNode = searchNodes[start] = SearchNode(
             start, .0, fscore)
-        # openSet = []
-        # heappush(openSet, startNode)
         fastHeap.push(fscore, self.tile2ref(start))
         while True:
-            # current = heappop(openSet)
             val, ref = fastHeap.pop()
             current_tile = self.ref2tile(ref)
             current = searchNodes[current_tile]  # TODO get rid of dict
@@ -311,11 +261,8 @@ cdef class ThetaStar:
                 if neighbor.out_openset:
                     neighbor.out_openset = False
                     fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))
-                    # heappush(openSet, neighbor)
                 else:
                     fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))  # repush node with smaller value that was found
-                    # openSet.remove(neighbor)
-                    # heappush(openSet, neighbor)
             if fastHeap.count == 0:  # no more nodes to explore
                 break
         return None
