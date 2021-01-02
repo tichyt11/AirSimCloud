@@ -2,6 +2,7 @@ import numpy as np
 cimport numpy as np
 from libc.math cimport sqrt, fabs
 from libc.stdlib cimport abs as cabs
+from fast_heap cimport FastUpdateBinaryHeap
 
 ctypedef np.uint8_t uint8
 ctypedef (Py_ssize_t, Py_ssize_t) tile
