@@ -3,13 +3,33 @@ cimport numpy as np
 from libc.math cimport sqrt, fabs
 from libc.stdlib cimport abs as cabs
 from fast_heap cimport FastUpdateBinaryHeap, REFERENCE_T, VALUE_T
-
-ctypedef np.uint8_t uint8
-ctypedef (Py_ssize_t, Py_ssize_t) tile
+import cython
+from libc.stdlib cimport malloc, free
 
 DOUBLE_TYPE = np.double
 BOOL_TYPE = np.bool
 Infinite = float('inf')
+
+ctypedef np.uint8_t uint8
+
+ctypedef (Py_ssize_t, Py_ssize_t) tile
+
+ctypedef struct line_data:
+    Py_ssize_t *rr
+    Py_ssize_t *cc
+    Py_ssize_t num_tiles
+
+ctypedef struct node:
+    tile data
+    double gscore, fscore
+    bint closed, out_openset
+    node *came_from
+
+cdef init_node(node *n, tile data, double gscore, double fscore):
+    n.data = data
+    n.gscore = gscore
+    n.fscore = fscore
+    n.came_from = NULL
 
 cdef Py_ssize_t cmax(Py_ssize_t a, Py_ssize_t b):
     if a > b:
@@ -17,7 +37,35 @@ cdef Py_ssize_t cmax(Py_ssize_t a, Py_ssize_t b):
     else:
         return b
 
-cdef _line(Py_ssize_t r0, Py_ssize_t c0, Py_ssize_t r1, Py_ssize_t c1):  # from skimage/draw
+cdef class SearchNode:
+    cdef public tile data
+    cdef public double gscore, fscore
+    cdef public bint closed
+    cdef public SearchNode came_from
+    def __cinit__(self, tile data, double gscore=Infinite, double fscore=Infinite):
+        self.data = data
+        self.gscore = gscore
+        self.fscore = fscore
+        self.closed = False
+        self.came_from = None
+
+class SearchNodeDict(dict):
+
+    def __missing__(self, tile k):
+        cdef SearchNode v = SearchNode(k)
+        self.__setitem__(k, v)
+        return v
+
+cdef bint is_goal_reached(tile current, tile goal):
+    return current[0] == goal[0] and current[1] == goal[1]
+
+cdef bint in_bounds(Py_ssize_t row, Py_ssize_t col, Py_ssize_t h, Py_ssize_t w):
+    return 0 <= row < h and 0 <= col < w
+
+cdef double dist(tile n0, tile n1):
+    return sqrt(<double>((n1[0] - n0[0])**2 + (n1[1] - n0[1])**2))
+
+cdef line_data _line(Py_ssize_t r0, Py_ssize_t c0, Py_ssize_t r1, Py_ssize_t c1):  # from skimage/draw
     cdef char steep = 0
     cdef Py_ssize_t r = r0
     cdef Py_ssize_t c = c0
@@ -26,8 +74,13 @@ cdef _line(Py_ssize_t r0, Py_ssize_t c0, Py_ssize_t r1, Py_ssize_t c1):  # from 
     cdef Py_ssize_t sr, sc, d, i
 
     cdef Py_ssize_t num_tiles = cmax(dc, dr) + 1
-    cdef Py_ssize_t[::1] rr = np.zeros(num_tiles, dtype=np.intp)
-    cdef Py_ssize_t[::1] cc = np.zeros(num_tiles, dtype=np.intp)
+    cdef Py_ssize_t *rr = <Py_ssize_t*> malloc(num_tiles * sizeof(Py_ssize_t))
+    cdef Py_ssize_t *cc = <Py_ssize_t*> malloc(num_tiles * sizeof(Py_ssize_t))
+    # cdef Py_ssize_t[::1] rr = np.zeros(num_tiles, dtype=np.intp)
+    # cdef Py_ssize_t[::1] cc = np.zeros(num_tiles, dtype=np.intp)
+
+    if rr is NULL or cc is NULL:
+        raise MemoryError()
 
     with nogil:
         if (c1 - c) > 0:
@@ -61,76 +114,33 @@ cdef _line(Py_ssize_t r0, Py_ssize_t c0, Py_ssize_t r1, Py_ssize_t c1):  # from 
         rr[dc] = r1
         cc[dc] = c1
 
-    return rr, cc, dc + 1
-
-cdef class SearchNode:
-    cdef public tile data
-    cdef public double gscore, fscore
-    cdef public bint closed, out_openset
-    cdef public SearchNode came_from
-    def __cinit__(self, tile data, double gscore=Infinite, double fscore=Infinite):
-        self.data = data
-        self.gscore = gscore
-        self.fscore = fscore
-        self.closed = False
-        self.out_openset = True
-        self.came_from = None
-
-ctypedef struct node:
-    tile data
-    double gscore, fscore
-    bint closed, out_openset
-    node *came_from
-
-cdef init_node(node *n, tile data, double gscore, double fscore):
-    cdef node *ptr = n
-    ptr.data = data
-    ptr.gscore = gscore
-    ptr.fscore = fscore
-    ptr.came_from = NULL
-
-class SearchNodeDict(dict):
-
-    def __missing__(self, tile k):
-        cdef SearchNode v = SearchNode(k)
-        self.__setitem__(k, v)
-        return v
-
-cdef bint is_goal_reached(tile current, tile goal):
-    return current[0] == goal[0] and current[1] == goal[1]
-
-cdef double dist(Py_ssize_t x0, Py_ssize_t y0, Py_ssize_t x1, Py_ssize_t y1):
-    return sqrt(<double>((x1 - x0)**2 + (y1 - y0)**2))
-
-cdef bint in_bounds(Py_ssize_t row, Py_ssize_t col, Py_ssize_t h, Py_ssize_t w):
-    return 0 <= row < h and 0 <= col < w
-
-cdef double heuristic(tile n0, tile n1):
-    r0 = n0[0]
-    c0 = n0[1]
-    r1 = n1[0]
-    c1 = n1[1]
-    return dist(r0, c0, r1, c1)
+    cdef line_data ret
+    ret.cc = cc
+    ret.rr = rr
+    ret.num_tiles = dc +1
+    return ret
 
 cdef class ThetaStar:
     cdef public Py_ssize_t h, w
-    cdef public double[:,:] vals_view
-    cdef public uint8[:,:] occ_view
+    cdef public double[:,::1] vals_view
+    cdef public unsigned char[:,::1] occ_view
     cdef public double alt
 
-    def __init__(self, occupancy_grid, vals, bint reversePath=0, double alt=1):
+    def __init__(self, np.ndarray[np.uint8_t, ndim=2] occupancy_grid, np.ndarray[np.float64_t, ndim=2] vals, bint reversePath=0, double alt=1):
         self.h = occupancy_grid.shape[0]
         self.w = occupancy_grid.shape[1]
 
-        assert vals.dtype == DOUBLE_TYPE
-        assert occupancy_grid.dtype == BOOL_TYPE
         self.vals_view = vals
-        self.occ_view = np.ubyte(occupancy_grid)
+        self.occ_view = occupancy_grid
         self.alt = alt
 
+    @cython.boundscheck(False)  # Deactivate bounds checking
+    @cython.wraparound(False)   # Deactivate negative indexing
+    @cython.cdivision(True)  # Activate C division
+    @cython.initializedcheck(False) # deactivate init check
     cdef bint lineOfsight(self, tile n0, tile n1):
-        cdef Py_ssize_t[::1] rs
-        cdef Py_ssize_t[::1] cs
+        cdef Py_ssize_t *rs
+        cdef Py_ssize_t *cs
         cdef Py_ssize_t  num_tiles, i, r0, r1, c0, c1, r, c
         cdef double z0, z1, defz, zb, ze, halfinc, z
 
@@ -142,13 +152,19 @@ cdef class ThetaStar:
         z0 = self.vals_view[r0, c0]
         z1 = self.vals_view[r1, c1]
 
-        rs, cs, num_tiles = _line(r0, c0, r1, c1)
+        cdef line_data ret = _line(r0, c0, r1, c1)
+        rs = ret.rr
+        cs = ret.cc
+        num_tiles = ret.num_tiles
+
 
         difz = z1 - z0
         halfinc = difz / ((2 * (num_tiles - 1)))
         ze = z0 + self.alt + halfinc  # at y/x = 1
 
         if ze < z0:  # check end of first one
+            free(rs)
+            free(cs)
             return 0
 
         for i in range(1, num_tiles-1):
@@ -158,25 +174,22 @@ cdef class ThetaStar:
             c = cs[i]
             z = self.vals_view[r, c]
             if self.occ_view[r, c] == 1 or zb < z or ze < z:  # obstacle in the way
+                free(rs)
+                free(cs)
                 return 0
-
+        free(rs)
+        free(cs)
         if ze < z1:  # check beginning of last one
             return 0
 
         return 1
 
-    cdef double heuristic_cost_estimate(self, tile current, tile goal):
-        cdef Py_ssize_t r0, c0, r1, c1
-        r0 = current[0]
-        c0 = current[1]
-        r1 = goal[0]
-        c1 = goal[1]
-        return dist(r0, c0, r1, c1)
-
+    @cython.initializedcheck(False) # deactivate init check
+    @cython.boundscheck(False)  # Deactivate bounds checking
+    @cython.wraparound(False)   # Deactivate negative indexing
     cdef double distance_between(self, tile n0, tile n1):
         cdef Py_ssize_t r0, c0, r1, c1
         cdef double height_diff
-
         r0 = n0[0]
         c0 = n0[1]
         r1 = n1[0]
@@ -184,8 +197,11 @@ cdef class ThetaStar:
         height_diff = fabs(self.vals_view[r0, c0] - self.vals_view[r1, c1])
         if height_diff > 10:  # penalize high altitude difference
             height_diff *= 100
-        return dist(r0, c0, r1, c1) + height_diff
+        return dist(n0, n1) + height_diff
 
+    @cython.initializedcheck(False) # deactivate init check
+    @cython.boundscheck(False)  # Deactivate bounds checking
+    @cython.wraparound(False)   # Deactivate negative indexing
     cdef neighbors(self, tile n):
         cdef Py_ssize_t r, c, i, rr, cc
         ret = []
@@ -202,6 +218,7 @@ cdef class ThetaStar:
 
     def reconstruct_path(self, SearchNode last):
         cdef SearchNode current
+        path = []
         def _gen():
             current = last
             while current:
@@ -215,6 +232,7 @@ cdef class ThetaStar:
         c = node[1]
         return r*self.w + c
 
+    @cython.cdivision(True)  # Activate C division
     cdef tile ref2tile(self, REFERENCE_T ref):
         cdef tile node
         node[0] = ref // self.w
@@ -226,22 +244,21 @@ cdef class ThetaStar:
         cdef REFERENCE_T ref  # PY_ssize_t
         cdef VALUE_T val  # double
         cdef tile current_tile
-
         cdef SearchNode current, neighbor
         if is_goal_reached(start, goal):
             return [start]
         searchNodes = SearchNodeDict()
-        cdef double fscore = self.heuristic_cost_estimate(start, goal)
+        cdef double fscore = dist(start, goal)
         startNode = searchNodes[start] = SearchNode(
             start, .0, fscore)
-        fastHeap.push(fscore, self.tile2ref(start))
+        fastHeap.push_fast(fscore, self.tile2ref(start))
         while True:
-            val, ref = fastHeap.pop()
+            fastHeap.pop_fast()
+            ref = fastHeap._popped_ref
             current_tile = self.ref2tile(ref)
             current = searchNodes[current_tile]  # TODO get rid of dict
             if is_goal_reached(current.data, goal):
                 return self.reconstruct_path(current)
-            current.out_openset = True
             current.closed = True
             for neighbor in map(lambda n: searchNodes[n], self.neighbors(current.data)):
                 if neighbor.closed:
@@ -257,12 +274,8 @@ cdef class ThetaStar:
                         continue
                     neighbor.came_from = current
                 neighbor.gscore = tentative_gscore
-                neighbor.fscore = tentative_gscore + self.heuristic_cost_estimate(neighbor.data, goal)
-                if neighbor.out_openset:
-                    neighbor.out_openset = False
-                    fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))
-                else:
-                    fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))  # repush node with smaller value that was found
+                neighbor.fscore = tentative_gscore + dist(neighbor.data, goal)
+                fastHeap.push_fast(neighbor.fscore, self.tile2ref(neighbor.data))
             if fastHeap.count == 0:  # no more nodes to explore
                 break
         return None
