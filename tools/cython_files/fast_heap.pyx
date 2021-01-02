@@ -599,6 +599,7 @@ cdef class FastUpdateBinaryHeap(BinaryHeap):
         Parameters
         ----------
         value : float
+
         reference : int
             If the reference is already present in the array, the value for
             that reference will be updated, otherwise the (value, reference)

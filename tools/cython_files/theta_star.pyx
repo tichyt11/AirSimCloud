@@ -2,7 +2,7 @@ import numpy as np
 cimport numpy as np
 from libc.math cimport sqrt, fabs
 from libc.stdlib cimport abs as cabs
-from fast_heap cimport FastUpdateBinaryHeap
+from fast_heap cimport FastUpdateBinaryHeap, REFERENCE_T, VALUE_T
 
 ctypedef np.uint8_t uint8
 ctypedef (Py_ssize_t, Py_ssize_t) tile
@@ -257,17 +257,38 @@ cdef class ThetaStar:
                 current = current.came_from
         return reversed(list(_gen()))
 
+    cdef REFERENCE_T tile2ref(self, tile node):
+        cdef Py_ssize_t r, c
+        r = node[0]
+        c = node[1]
+        return r*self.w + c
+
+    cdef tile ref2tile(self, REFERENCE_T ref):
+        cdef tile node
+        node[0] = ref // self.w
+        node[1] = ref % self.w
+        return node
+
     def thetastar(self, tile start, tile goal, reversePath=False):
+        fastHeap = FastUpdateBinaryHeap(max_reference=self.w*self.h-1)  # push(val, ref), value_of(ref), val, ref = pop()
+        cdef REFERENCE_T ref  # PY_ssize_t
+        cdef VALUE_T val  # double
+
         cdef SearchNode current, neighbor
         if is_goal_reached(start, goal):
             return [start]
         searchNodes = SearchNodeDict()
+        cdef double fscore = self.heuristic_cost_estimate(start, goal)
         startNode = searchNodes[start] = SearchNode(
-            start, .0, self.heuristic_cost_estimate(start, goal))
-        openSet = []
-        heappush(openSet, startNode)
-        while openSet:
-            current = heappop(openSet)
+            start, .0, fscore)
+        # openSet = []
+        # heappush(openSet, startNode)
+        fastHeap.push(fscore, self.tile2ref(start))
+        while True:
+            # current = heappop(openSet)
+            val, ref = fastHeap.pop()
+            current_tile = self.ref2tile(ref)
+            current = searchNodes[current_tile]  # TODO get rid of dict
             if is_goal_reached(current.data, goal):
                 return self.reconstruct_path(current)
             current.out_openset = True
@@ -289,9 +310,12 @@ cdef class ThetaStar:
                 neighbor.fscore = tentative_gscore + self.heuristic_cost_estimate(neighbor.data, goal)
                 if neighbor.out_openset:
                     neighbor.out_openset = False
-                    heappush(openSet, neighbor)
+                    fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))
+                    # heappush(openSet, neighbor)
                 else:
-                    # re-add the node in order to re-sort the heap
-                    openSet.remove(neighbor)
-                    heappush(openSet, neighbor)
+                    fastHeap.push(neighbor.fscore, self.tile2ref(neighbor.data))  # repush node with smaller value that was found
+                    # openSet.remove(neighbor)
+                    # heappush(openSet, neighbor)
+            if fastHeap.count == 0:  # no more nodes to explore
+                break
         return None
