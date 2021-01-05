@@ -7,7 +7,7 @@ from matplotlib import cm
 from scipy import signal
 import math
 from matplotlib import pyplot as plt
-from search import astar_search
+from tools.search import astar_search
 
 cmd = """
  [
@@ -56,9 +56,9 @@ class DsmHandler:
         y = self.res * (self.h - row) + self.grid_origin[1]
         return x, y, z
 
-    def world2image(self, x, y, origin):  # for given world point returns its coords in the dsm
-        col = (x - origin[0])/self.res
-        row = self.h - (y - origin[1])/self.res
+    def world2image(self, x, y):  # for given world point returns its coords in the dsm
+        col = (x - self.grid_origin[0])/self.res
+        row = self.h - (y - self.grid_origin[1])/self.res
         col = math.floor(col)
         row = math.floor(row)
         return row, col
@@ -98,14 +98,19 @@ class DsmHandler:
         grown_obstacles = signal.convolve2d(occupancy, kernel, mode='same', boundary='fill') > 0
         return grown_obstacles
 
-    def PathPicker(self, dsm, rel_alt, min_alt, max_alt):
+    def PathPicker(self, dsm, rel_alt, min_alt, max_alt, start_at_origin=False):
         vis = np.ma.masked_array(dsm, mask=dsm == self.no_data)
         vis = (vis - vis.min())/vis.max()  # normalize
         vis = np.uint8(cm.terrain(vis)*255)  # render as rgb for visualization
 
         occupancy = self.generateOccupancyGrid(dsm, min_alt, max_alt)
 
-        picker = GUI.Picker(vis, occupancy, dsm, self.image2world)
+        if start_at_origin:
+            manual_start = self.world2image(0, 0)
+        else:
+            manual_start = None
+
+        picker = GUI.Picker(vis, occupancy, dsm, self.image2world, manual_start=manual_start)
         world_path = [self.image2worldXYZ(x, y, dsm, rel_alt) for x, y in picker.path]
         return world_path
 

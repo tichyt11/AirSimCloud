@@ -4,7 +4,7 @@ import tools.cython_files.theta_star as search
 
 
 class Picker:
-    def __init__(self, dsm, occupancy_grid, vals, image2world):
+    def __init__(self, dsm, occupancy_grid, vals, image2world, manual_start=None):
         (h, w) = dsm.shape[:2]
         self.h, self.w = h, w
 
@@ -17,7 +17,7 @@ class Picker:
         rightFrame.pack(side='right', anchor='n', fill=tk.Y, expand=False)
 
         self.canvas = tk.Canvas(leftFrame, relief='raised', borderwidth=1, width=w, height=h)
-        self.canvas.bind('<Button-1>', self.pick)
+        self.canvas.bind('<Button-1>', self.handleClick)
         self.canvas.bind('<Motion>', self.update_pos)
         self.canvas.pack(side='left', fill=tk.X, expand=True)
 
@@ -34,10 +34,11 @@ class Picker:
         button2 = tk.Button(rightFrame, command=self.toggle_image, width=25, textvariable=self.to_show, bg='white')
         button3 = tk.Button(rightFrame, command=lambda: self.change_mode('Start'), width=25, text='Pick Start', bg= 'white')
         button4 = tk.Button(rightFrame, command=lambda: self.change_mode('Goal'), width=25, text='Pick Goal', bg='white')
-        button5 = tk.Button(rightFrame, command=self.compute, width=25, text='Find Path', bg='white')
+        button5 = tk.Button(rightFrame, command=self.find_path, width=25, text='Find Path', bg='white')
         button1.pack(side='top')
         button2.pack(side='top')
-        button3.pack(side='top')
+        if manual_start is None:
+            button3.pack(side='top')
         button4.pack(side='top')
         button5.pack(side='top')
         self.buttons = {'Toggle': button2, 'Start': button3, 'Goal': button4, 'Find_path': button5}
@@ -50,11 +51,14 @@ class Picker:
         self.vals = vals
         self.path = []
         self.path_graph = []
-        self.image2world = image2world
         self.PathFinder = search.PathFinder(occupancy_grid, vals)
+        self.image2world = image2world
 
         picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dsm, mode='RGBA'))
         self.canvas_image = self.canvas.create_image(0, 0, anchor=tk.NW, image=picture)
+
+        if manual_start is not None:
+            self.set_start(manual_start[0], manual_start[1])
 
         self.window.mainloop()
 
@@ -72,7 +76,7 @@ class Picker:
         col, row = event.x, event.y
         if 0 <= col < self.w and 0 <= row < self.h:
             x, y = self.image2world(row, col)
-            self.pos['text'] = 'Mouse at [%.2f, %.2f, %.2f]' % (x, y, self.vals[row-1, col-1])
+            self.pos['text'] = 'World coords: [%.2f, %.2f, %.2f]' % (x, y, self.vals[row-1, col-1])
 
     def change_mode(self, mode):
         colors = {'Start': 'red', 'Goal': 'blue'}
@@ -81,7 +85,7 @@ class Picker:
             self.buttons[i].config(bg='white')
         self.buttons[mode].config(bg=colors[mode])
 
-    def compute(self):
+    def find_path(self):
         if not (self.goal and self.start):
             print('No goal or start node selected')
         else:
@@ -103,27 +107,35 @@ class Picker:
             self.canvas.delete(i)
         self.path_graph = []
 
-    def pick(self, event):
+    def handleClick(self, event):
         col, row = event.x, event.y
         if self.occupancy_grid[row, col] == 1 and self.mode != '':
             print('Grid at %d, %d is occupied' % (row, col))
             return
         if self.mode == 'Start':
             self.destroy_path()
-            if not self.start:
-                self.start = self.draw_rect(col-1, row-1, 3, 3, 'red')
-            self.canvas.moveto(self.start, col-1, row-1)
-            self.buttons['Start'].config(bg='white')
-            self.info['Start'] = (row, col)
-
+            self.set_start(row, col)
         elif self.mode == 'Goal':
             self.destroy_path()
-            if not self.goal:
-                self.goal = self.draw_rect(col-1, row-1, 3, 3, 'blue')
-            self.canvas.moveto(self.goal, col-1, row-1)
-            self.buttons['Goal'].config(bg='white')
-            self.info['Goal'] = (row, col)
+            self.set_goal(row, col)
         self.mode = ''
+
+    def set_start(self, row, col):
+        if not self.start:
+            self.start = self.draw_rect(col - 1, row - 1, 3, 3, 'red')
+        else:
+            self.canvas.moveto(self.start, col - 1, row - 1)
+        self.buttons['Start'].config(bg='white')
+        self.info['Start'] = (row, col)
+        self.make_info()
+
+    def set_goal(self, row, col):
+        if not self.goal:
+            self.goal = self.draw_rect(col - 1, row - 1, 3, 3, 'blue')
+        else:
+            self.canvas.moveto(self.goal, col - 1, row - 1)
+        self.buttons['Goal'].config(bg='white')
+        self.info['Goal'] = (row, col)
         self.make_info()
 
     def quit(self, event=''):

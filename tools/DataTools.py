@@ -104,7 +104,7 @@ def save_image_gps(image_array, gps, fname):
 def save_disps(coords, angles, env, path):  # save disparities as tif images
     for i in range(len(coords)):
         env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
-        time.sleep(0.2)  # depth doesnt sometimes load that fast
+        time.sleep(0.3)  # depth doesnt sometimes load that fast
         disp = env.getDisparity()
 
         fname = path + 'disp%d.tif' % i
@@ -114,9 +114,11 @@ def save_disps(coords, angles, env, path):  # save disparities as tif images
 def save_rgbs(coords, angles, env, path, form='jpg'):  # save rgb images
     for i in range(len(coords)):
         env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+        time.sleep(0.3)
         rgb = env.getRGB()
         fname = path + 'rgb%d.%s' % (i, form)
         cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
+        print('Saved image %d' % i)
 
 
 def save_rgbs_gps(coords, angles, env, path, ref_origin, form='jpg'):

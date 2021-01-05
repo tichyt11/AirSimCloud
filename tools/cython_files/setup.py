@@ -7,7 +7,7 @@ Cython.Compiler.Options.annotate = True
 
 ext_modules = [
     Extension("theta_star",  ["theta_star.pyx"]),
-    Extension("fast_heap",  ["fast_heap.pyx"]),
+    Extension("heap",  ["heap.pyx"]),
 ]
 
 setup(
