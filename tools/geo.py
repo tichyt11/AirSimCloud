@@ -1,4 +1,4 @@
-#  Borrowed from OpenSfm/geo.py
+# code borrowed from https://github.com/mapillary/OpenSfM/blob/master/opensfm/geo.py
 import numpy as np
 
 WGS84_a = 6378137.0
@@ -83,3 +83,12 @@ def ecef_from_topocentric_transform(lat, lon, alt):
             [0, 0, 0, 1],
         ]
     )
+
+
+def topocentric_from_lla(lat, lon, alt, reflat, reflon, refalt):
+    T = np.linalg.inv(ecef_from_topocentric_transform(reflat, reflon, refalt))
+    x, y, z = ecef_from_lla(lat, lon, alt)
+    tx = T[0, 0] * x + T[0, 1] * y + T[0, 2] * z + T[0, 3]
+    ty = T[1, 0] * x + T[1, 1] * y + T[1, 2] * z + T[1, 3]
+    tz = T[2, 0] * x + T[2, 1] * y + T[2, 2] * z + T[2, 3]
+    return tx, ty, tz

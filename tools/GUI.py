@@ -4,9 +4,10 @@ import tools.cython_files.theta_star as search
 
 
 class Picker:
-    def __init__(self, dsm, occupancy_grid, vals, image2world, manual_start=None):
+    def __init__(self, dsm, occupancy_grid, heightmap, alt, image2world, manual_start=None):
         (h, w) = dsm.shape[:2]
         self.h, self.w = h, w
+        self.alt = alt
 
         self.window = tk.Tk()
         self.window.bind('<Escape>', self.quit)
@@ -48,10 +49,10 @@ class Picker:
         self.goal = None
         self.occupancy_grid = occupancy_grid
         self.dsm = dsm
-        self.vals = vals
+        self.heightmap = heightmap
         self.path = []
         self.path_graph = []
-        self.PathFinder = search.PathFinder(occupancy_grid, vals)
+        self.PathFinder = search.PathFinder(occupancy_grid, heightmap)
         self.image2world = image2world
 
         picture = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(dsm, mode='RGBA'))
@@ -76,7 +77,7 @@ class Picker:
         col, row = event.x, event.y
         if 0 <= col < self.w and 0 <= row < self.h:
             x, y = self.image2world(row, col)
-            self.pos['text'] = 'World coords: [%.2f, %.2f, %.2f]' % (x, y, self.vals[row-1, col-1])
+            self.pos['text'] = 'World coords: [%.2f, %.2f, %.2f]' % (x, y, self.heightmap[row-1, col-1])
 
     def change_mode(self, mode):
         colors = {'Start': 'red', 'Goal': 'blue'}
@@ -91,7 +92,7 @@ class Picker:
         else:
             start = self.info['Start']
             goal = self.info['Goal']
-            self.path = self.PathFinder.thetastar(start, goal)
+            self.path = self.PathFinder.thetastar(start, goal, self.alt)
             if self.path is None:
                 print('No path found')
             self.show_path()
@@ -152,9 +153,9 @@ class Picker:
         if self.start:
             row, col = self.info['Start']
             x, y = self.image2world(row, col)
-            info += ('Start is at [%.2f, %.2f, %.2f]\n' % (x, y, self.vals[row, col]))
+            info += ('Start is at [%.2f, %.2f, %.2f]\n' % (x, y, self.heightmap[row, col]))
         if self.goal:
             row, col = self.info['Goal']
             x, y = self.image2world(row, col)
-            info += ('Goal is at [%.2f, %.2f, %.2f]\n' % (x, y, self.vals[row, col]))
+            info += ('Goal is at [%.2f, %.2f, %.2f]\n' % (x, y, self.heightmap[row, col]))
         self.label['text'] = info

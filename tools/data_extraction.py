@@ -3,7 +3,6 @@ from scipy.spatial.transform import Rotation
 import cv2
 from tools.geo import *
 import tifffile
-import time
 import piexif
 from PIL import Image
 
@@ -101,46 +100,12 @@ def save_image_gps(image_array, gps, fname):
     img.save(fname, exif=exif_bytes, quality=95)
 
 
-def save_disps(coords, angles, env, path):  # save disparities as tif images
-    for i in range(len(coords)):
-        env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
-        time.sleep(0.3)  # depth doesnt sometimes load that fast
-        disp = env.getDisparity()
-
-        fname = path + 'disp%d.tif' % i
-        cv2.imwrite(fname, disp)
-
-
-def save_rgbs(coords, angles, env, path, form='jpg'):  # save rgb images
-    for i in range(len(coords)):
-        env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
-        time.sleep(0.3)
-        rgb = env.getRGB()
-        fname = path + 'rgb%d.%s' % (i, form)
-        cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
-        print('Saved image %d' % i)
-
-
-def save_rgbs_gps(coords, angles, env, path, ref_origin, form='jpg'):
-    reflat, reflon, refalt = ref_origin
-
-    for i in range(len(coords)):
-        env.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
-        time.sleep(0.3)
-        rgb = env.getRGB()
-        x, y, z = coords[i]
-        gps = lla_from_topocentric(x, y, z, reflat, reflon, refalt)
-        fname = path + 'rgb%d.%s' % (i, form)
-        save_image_gps(rgb, gps, fname)
-        print('Saved image %d' % i)
-
-
 def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     pitch, roll, yaw = angles
 
     flipZY = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # flip z -> height+ <=> z+ and flip y for righthanded coords
     R01 = np.array(Rotation.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix())  # yaw pitch roll from camera to world
-    R12 = np.array(Rotation.from_euler('ZX', [90, 90], degrees=True).as_matrix())  # from image coords to 'camera' (actor) coords
+    R12 = np.array(Rotation.from_euler('ZX', [90, 90], degrees=True).as_matrix())  # from image coords to (actor) coords for camera facing downwards
 
     R = flipZY @ R01 @ R12
     t = np.array(coords)[None].T  # [None] enables transposition
@@ -150,8 +115,8 @@ def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, form='jpg'):
-    num_images = len(coords)
+def build_cloud_from_saved(coords_list, angles_list, path, size, reproj_matrix, form='jpg'):
+    num_images = len(coords_list)
     total_size = num_images*size
     with open(path + 'GT.ply', 'wb') as out:
         out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
@@ -163,7 +128,7 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, form='jpg'
             rgb_file = path + 'images\\rgb%d.%s' % (i, form)
             colors = cv2.cvtColor(cv2.imread(rgb_file), cv2.COLOR_BGR2RGB)
 
-            T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
+            T = camera2world_transform(coords_list[i], angles_list[i])  # prepare transform from camera to world coordinates
             P = T @ reproj_matrix
             verts = cv2.reprojectImageTo3D(disp, P)
 
@@ -172,33 +137,4 @@ def build_cloud_from_saved(coords, angles, path, size, reproj_matrix, form='jpg'
             verts = np.hstack([verts, colors])
             np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
             print('View number %d done' % i)
-        print('Saving point cloud')
-
-
-def get_cloud(coords, angles, env, path):
-    num_images = len(coords)
-    print('Collectign data from %d views' % num_images)
-
-    total_size = num_images*env.h*env.w
-    env.setPose(coords[0], angles[0])  # init position
-
-    with open(path + 'GT.ply', 'wb') as out:
-        out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
-
-        for i in range(num_images):
-            disp = env.getDisparity()  # get image and disparity map from airsim camera
-            colors = env.getRGB()
-            if i + 1 < num_images:
-                env.setPose(coords[i+1], angles[i+1])  # move right after taking data, for depth to load properly
-
-            T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
-            P = T @ env.Q
-            verts = cv2.reprojectImageTo3D(disp, P)
-
-            verts = verts.reshape(-1, 3)
-            colors = colors.reshape(-1, 3)
-            verts = np.hstack([verts, colors])
-            np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
-            print('View number %d done' % i)
-
         print('Saving point cloud')
