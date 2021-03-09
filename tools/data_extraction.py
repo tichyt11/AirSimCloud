@@ -5,6 +5,8 @@ from tools.geo import *
 import tifffile
 import piexif
 from PIL import Image
+import os
+from tools.distortion import distort_image
 
 PI = math.pi
 
@@ -21,8 +23,13 @@ end_header
 '''
 
 
-def coords2gps_txt(path, coords, ref_coords, index=None, form='jpg'):  # for ODM
-    precision = 1
+def create_dir(dir_name):
+    if not os.path.exists(dir_name):
+        print('Warning: Creating %s directory' % dir_name)
+        os.mkdir(dir_name)
+
+
+def coords2gps_txt(path, coords, ref_coords, index=None, form='jpg', precision=0.001):  # for ODM
     reflat, reflon, refalt = ref_coords
 
     indeces = [0, index, len(coords) - 1] if index else range(len(coords))
@@ -115,7 +122,7 @@ def camera2world_transform(coords, angles):  # angles as pitch, roll, yaw
     return T
 
 
-def build_cloud_from_saved(coords_list, angles_list, path, size, reproj_matrix, form='jpg'):
+def build_cloud_from_saved(coords_list, angles_list, path, size, reproj_matrix, form='jpg'):  # for separate depth and color
     num_images = len(coords_list)
     total_size = num_images*size
     with open(path + 'GT.ply', 'wb') as out:
@@ -138,3 +145,43 @@ def build_cloud_from_saved(coords_list, angles_list, path, size, reproj_matrix, 
             np.savetxt(out, verts, fmt='%f %f %f %d %d %d ')  # save points
             print('View number %d done' % i)
         print('Saving point cloud')
+
+
+def airsim_format_rec(rec_dir, gps_ref=(3, 3, 0), distort_map=None, precision=0.001):
+    rec_txt = os.path.join(rec_dir, 'airsim_rec.txt')
+    xyz_txt = os.path.join(rec_dir, 'xyz.txt')
+    image_dir = os.path.join(rec_dir, 'images')
+    new_image_dir = os.path.join(rec_dir, 'exif_images')
+    create_dir(new_image_dir)
+
+    if distort_map is not None:
+        dist_dir = os.path.join(rec_dir, 'distorted')
+        create_dir(dist_dir)
+
+    reflat, reflon, refalt = gps_ref
+    with open(rec_txt, 'r') as f:
+        f.readline()  # throw away header line
+        lines = f.readlines()
+
+    xyz = open(xyz_txt, 'w')
+    for i, line in enumerate(lines):
+        data = line.split('\t')
+        old_image_name = data[-1].strip('\n')
+        old_image_path = os.path.join(image_dir, old_image_name)
+        img = cv2.cvtColor(cv2.imread(old_image_path), cv2.COLOR_BGR2RGB)  # load recorded image
+
+        new_image_name = 'rgb%d.jpg' % i
+        new_image_path = os.path.join(new_image_dir, new_image_name)
+
+        x, y, z = list(map(float, data[1:4]))  # x,y,z coordinates of the camera
+        lat, lon, alt = lla_from_topocentric(x, -y, -z, reflat, reflon, refalt)  # transform ENU to WGS
+
+        if distort_map is not None:
+            distorted_image_path = os.path.join(dist_dir, new_image_name)
+            dist_img = distort_image(img, distort_map)
+            save_image_gps(dist_img, (lat, lon, alt), distorted_image_path)  # save with exif gps
+
+        save_image_gps(img, (lat, lon, alt), new_image_path)  # save the image with exif gps
+        xyz.write("%s %.15f %.15f %.15f\n" % (new_image_name, x, -y, -z))  # write down camera coordinates
+
+    xyz.close()

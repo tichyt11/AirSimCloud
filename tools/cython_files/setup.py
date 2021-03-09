@@ -6,7 +6,7 @@ import Cython.Compiler.Options
 Cython.Compiler.Options.annotate = True
 
 ext_modules = [
-    Extension("theta_star",  ["theta_star.pyx"]),
+    Extension("thetastar",  ["thetastar.pyx"]),
     Extension("heap",  ["heap.pyx"]),
 ]
 

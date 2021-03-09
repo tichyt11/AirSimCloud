@@ -4,12 +4,14 @@ import cv2
 import math
 import time
 import os
-from tools.data_extraction import save_image_gps, camera2world_transform, ply_header
-from tools.Distorter import Distorter
+from tools.data_extraction import save_image_gps, camera2world_transform, ply_header, airsim_format_rec, create_dir
+from tools.distortion import Distorter
 from tools import geo
 
 
 PI = math.pi
+
+airsim_rec_dir = 'C:/Users/tomtc/OneDrive/Dokumenty/AirSim/'
 
 
 class AirSimBase:
@@ -17,7 +19,7 @@ class AirSimBase:
         self.camerainfo = self.client.simGetCameraInfo(str(0))
 
         self.FOV = self.camerainfo.fov * math.pi / 180  # convert to radians
-        self.h, self.w = self.getRGB().shape[:2]
+        self.h, self.w = self.get_rgb().shape[:2]
         fl = 0.5 * self.w / math.tan(self.FOV / 2)  # formula for focal length
         b = 0.25  # baseline from airsim documentation
 
@@ -33,33 +35,33 @@ class AirSimBase:
                            [0, 0, 1]])
 
         if not dist:
-            self.dist_coeffs = np.array([0.01, 0.05, 0.03, -0.01])
+            self.dist_coeffs = np.array([0.01, 0.05, 0.002, -0.001, -0.06])  # k1, k2, p1, p2, k3 from some real camera
         else:
             self.dist_coeffs = np.array(dist)
 
         self.Dister = Distorter(self.K, self.dist_coeffs)
+        self.dist_map = self.Dister.compute_distortion_map((self.h, self.w))
 
-
-    def getRGB(self):
+    def get_rgb(self):
         responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.Scene, False, False)])
         rgb = np.frombuffer(responses[0].image_data_uint8, np.uint8)
         rgb = rgb.reshape(responses[0].height, responses[0].width, 3)
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
         return rgb
 
-    def getDisparity(self):
+    def get_disp(self):
         responses = self.client.simGetImages(
             [airsim.ImageRequest("0", airsim.ImageType.DisparityNormalized, True, False)])
         disp = np.array(responses[0].image_data_float) * responses[0].width
         disp = disp.reshape(responses[0].height, responses[0].width).astype(np.float32)
         return disp
 
-    def disableLODs(self):
-        commands = ['r.forceLOD 0', 'r.forceLODShadow 0', 'foliage.forceLOD 0']
+    def disable_lods(self):
+        commands = ['r.forceLOD 0', 'r.forceLODShadow 0', 'foliage.forceLOD 0', 'r.streaming.poolsize 2000']
         for cmd in commands:
             self.client.simRunConsoleCommand(cmd)
 
-    def drawPoints(self, coords, rgba=(1, 0, 0, 1), duration=60):
+    def draw_points(self, coords, rgba=(1, 0, 0, 1), duration=60):
         points = [airsim.Vector3r(x, -y, -z) for x, y, z in coords]
         self.client.simPlotPoints(points, rgba, duration=duration)
 
@@ -76,24 +78,24 @@ class AirSimCV(AirSimBase):
 
         super().__init__()
 
-    def getPosition(self):
+    def get_position(self):
         info = self.client.simGetCameraInfo(str(0)).pose.position
         position = (info.x_val, -info.y_val, -info.z_val)  # flips z and y
         return position
 
-    def getOrientation(self):
+    def get_orientation(self):
         quaternion = self.client.simGetCameraInfo(str(0)).pose.orientation
         return quaternion
 
-    def setPosition(self, coords):
-        quat = self.getOrientation()
-        self.setPose(coords, quat, quat=True)
+    def set_position(self, coords):
+        quat = self.get_orientation()
+        self.set_pose(coords, quat, quat=True)
 
-    def setOrientation(self, angles):  # pitch roll yaw
-        coords = self.getPosition()
-        self.setPose(coords, angles)
+    def set_orientation(self, angles):  # pitch roll yaw
+        coords = self.get_position()
+        self.set_pose(coords, angles)
 
-    def setPose(self, coords, orientation, quat=False):
+    def set_pose(self, coords, orientation, quat=False):
         x, y, z = coords
         vector = airsim.Vector3r(x, -y, -z)  # flips z and y
 
@@ -108,17 +110,17 @@ class AirSimCV(AirSimBase):
         print('Collecting data from %d views' % num_images)
 
         total_size = num_images * self.h * self.w
-        self.setPose(coords[0], angles[0])  # init position
+        self.set_pose(coords[0], angles[0])  # init position
 
         with open(path + 'GT.ply', 'wb') as out:
             out.write((ply_header % dict(vert_num=total_size)).encode('utf-8'))
 
             for i in range(num_images):
                 time.sleep(0.3)
-                disp = self.getDisparity()  # get image and disparity map from airsim camera
-                colors = self.getRGB()
+                disp = self.get_disp()  # get image and disparity map from airsim camera
+                colors = self.get_rgb()
                 if i + 1 < num_images:
-                    self.setPose(coords[i + 1],
+                    self.set_pose(coords[i + 1],
                                 angles[i + 1])  # move right after taking data, for depth to load properly
 
                 T = camera2world_transform(coords[i], angles[i])  # prepare transform from camera to world coordinates
@@ -135,18 +137,18 @@ class AirSimCV(AirSimBase):
 
     def save_disps(self, coords, angles, disp_dir):  # save disparities as tif images
         for i in range(len(coords)):
-            self.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+            self.set_pose(coords[i], angles[i])  # move airsim camera to coords and rotate it
             time.sleep(0.3)  # wait for rendering
-            disp = self.getDisparity()
+            disp = self.get_disp()
 
             fname = os.path.join(disp_dir, 'disp%d.tif' % i)
             cv2.imwrite(fname, disp)
 
     def save_rgbs(self, coords, angles, image_dir, fmt='jpg'):  # save rgb images
         for i in range(len(coords)):
-            self.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+            self.set_pose(coords[i], angles[i])  # move airsim camera to coords and rotate it
             time.sleep(0.3)  # wait for rendering
-            rgb = self.getRGB()
+            rgb = self.get_rgb()
             fname = os.path.join(image_dir, 'rgb%d.%s' % (i, fmt))
             cv2.imwrite(fname, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))  # convert and save
             print('Saved image %d' % i)
@@ -155,9 +157,9 @@ class AirSimCV(AirSimBase):
         reflat, reflon, refalt = ref_origin
 
         for i in range(len(coords)):
-            self.setPose(coords[i], angles[i])  # move airsim camera to coords and rotate it
+            self.set_pose(coords[i], angles[i])  # move airsim camera to coords and rotate it
             time.sleep(0.3)  # wait for rendering
-            rgb = self.getRGB()
+            rgb = self.get_rgb()
             x, y, z = coords[i]
             gps = geo.lla_from_topocentric(x, y, z, reflat, reflon, refalt)
             fname = os.path.join(image_dir, 'rgb%d.%s' % (i, fmt))
@@ -177,23 +179,23 @@ class AirSimUAV(AirSimBase):
 
         super().__init__()
 
-    def getColInfo(self):
+    def get_collision_info(self):
         info = self.client.simGetCollisionInfo()
         collided = info.has_collided
         # timestamp = info.time_stamp
         return collided
 
-    def getXYZpos(self):
+    def get_xyz(self):
         pos = self.client.simGetGroundTruthKinematics().position
         x, y, z = pos.x_val, -pos.y_val, -pos.z_val  # flip y and z from Airsim coordinate system
         return x, y, z
 
-    def getcameraXYZpos(self):
+    def get_camera_xyz(self):
         pos = self.client.simGetCameraInfo().position  # camera has different cooridnates than the drone
         x, y, z = pos.x_val, -pos.y_val, -pos.z_val  # flip y and z from Airsim coordinate system
         return x, y, z
 
-    def getGPSpos(self):
+    def get_gps(self):
         reflat, reflon, refalt = self.GPSref
         sim_gps = self.client.getGpsData().gnss.geo_point
         sim_lat, sim_lon, alt = sim_gps.latitude, sim_gps.longitude, sim_gps.altitude
@@ -202,7 +204,7 @@ class AirSimUAV(AirSimBase):
         lat = -(sim_lon - reflon) + reflat  # AirSim -lon becomes my lat
         return lat, lon, alt
 
-    def getGPShome(self):
+    def get_gps_home(self):
         reflat, reflon, refalt = self.GPSref
         sim_gps = self.client.getHomeGeoPoint()
         sim_lat, sim_lon, alt = sim_gps.latitude, sim_gps.longitude, sim_gps.altitude
@@ -218,12 +220,12 @@ class AirSimUAV(AirSimBase):
     def hover(self):
         self.client.hoverAsync().join()
 
-    def setCameraAngle(self, orientation):
+    def set_camera_angle(self, orientation):
         pitch, roll, yaw = np.array(orientation)*PI/180
         camera_pose = airsim.Pose(airsim.Vector3r(0, 0, 0), airsim.to_quaternion(pitch, roll, yaw))
         self.client.simSetCameraPose("0", camera_pose)
 
-    def moveTo(self, coords, v=5, wait=True):
+    def move_to(self, coords, v=5, wait=True):
         x, y, z = coords
         y, z = -y, -z  # flip y and z into Airsim coordinate system
         if wait:
@@ -236,7 +238,7 @@ class AirSimUAV(AirSimBase):
         vz = -vz
         return self.client.moveByVelocityAsync(vx, vy, vz, t).join()
 
-    def moveFromTo(self, fromcoords, tocoords, v=10):
+    def move_from_to(self, fromcoords, tocoords, v=10):
         x0, y0, z0 = fromcoords
         x, y, z = tocoords
         delta_x = x - x0
@@ -250,7 +252,7 @@ class AirSimUAV(AirSimBase):
         self.moveByVelocity(0, 0, 0, v)  # settle
         self.hover()
 
-    def moveOnPath(self, path, v=5, wait=True):
+    def move_on_path(self, path, v=5, wait=True):
         trip_time = 1000000  # temp value
         lookahead = -1
         airsim_path = [airsim.Vector3r(x, -y, -z) for x, y, z in path]  # flip y and z into Airsim coordinate system
@@ -261,20 +263,37 @@ class AirSimUAV(AirSimBase):
             self.client.moveOnPathAsync(airsim_path, v, trip_time, airsim.DrivetrainType.ForwardOnly,
                                         airsim.YawMode(False, 0), lookahead, 1)
 
-    def survey(self, waypoints, gimbal_angle, data_dir, v=5, distort=False):
-        if not os.path.exists(data_dir):
-            print('Warning: Creating %s' % data_dir)
-            os.makedirs(data_dir)
+    def survey(self, waypoints, gimbal_angle, v=5, distort=False, precision=0.1):
+        print('Info: Flying to survey altitude')
+        x, y = self.get_xyz()[:2]
+        z = waypoints[0][2]
+        self.move_to((x, y, z), v * 2)  # fly to survey altitude
+        self.set_camera_angle(gimbal_angle)
+
+        print('Info: Starting capturing images')
+        self.client.startRecording()
+        self.move_on_path(waypoints, v)
+        self.client.stopRecording()
+        print('Info: Survey completed')
+        time.sleep(5)  # wait a bit
+
+        files = os.listdir(airsim_rec_dir)
+        paths = [os.path.join(airsim_rec_dir, basename) for basename in files]
+        newest_rec_dir = max(paths, key=os.path.getctime)
+        print('Info: Processing captured images')
+        if distort:
+            airsim_format_rec(newest_rec_dir, self.GPSref, self.dist_map, precision=precision)
+        else:
+            airsim_format_rec(newest_rec_dir, self.GPSref, precision=precision)
+
+    def survey_controlled(self, waypoints, gimbal_angle, data_dir, v=5, distort=False):
+        create_dir(data_dir)
 
         image_dir = os.path.join(data_dir, 'images')
-        if not os.path.exists(image_dir):
-            print('Warning: Creating %s' % image_dir)
-            os.makedirs(image_dir)
+        create_dir(image_dir)
 
         dist_dir = os.path.join(data_dir, 'distorted')
-        if distort and not os.path.exists(dist_dir):
-            print('Warning: Creating %s' % dist_dir)
-            os.makedirs(dist_dir)
+        create_dir(dist_dir)
 
         img_xyz = os.path.join(image_dir, 'xyz.txt')
         dist_xyz = os.path.join(dist_dir, 'xyz.txt')
@@ -283,21 +302,18 @@ class AirSimUAV(AirSimBase):
         if distort:
             dist_xyz = open(dist_xyz, 'w')
 
-        x, y = self.getXYZpos()[:2]
+        x, y = self.get_xyz()[:2]
         z = waypoints[0][2]
-        self.setCameraAngle(gimbal_angle)
-        self.moveTo((x, y, z), v*2)  # fly to survey altitude
+        self.set_camera_angle(gimbal_angle)
+        self.move_to((x, y, z), v*2)  # fly to survey altitude
 
         for i, point in enumerate(waypoints):
 
-            self.moveFromTo(self.getXYZpos(), point, v)
-            # self.moveTo(point, v)
-            self.setCameraAngle(gimbal_angle)  # set camera gimbal angle
-            rgb = self.getRGB()
+            self.move_from_to(self.get_xyz(), point, v)
+            rgb = self.get_rgb()
 
-            gps = self.getGPSpos()
+            gps = self.get_gps()
             lat, lon, alt = gps
-            # x, y, z = self.getXYZpos()  # coordinates could be inconsistent with gps due to time delay
             x, y, z = geo.topocentric_from_lla(lat, lon, alt, reflat, reflon, refalt)
 
             img_xyz.write('rgb%d.jpg %.15f %.15f %.15f\n' % (i, x, y, z))  # write xyz file for colmap

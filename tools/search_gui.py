@@ -1,6 +1,6 @@
 import tkinter as tk
 import PIL.Image, PIL.ImageTk
-import tools.cython_files.theta_star as search
+import tools.cython_files.thetastar as search
 
 
 class Picker:
@@ -101,7 +101,7 @@ class Picker:
         for i in range(len(self.path) - 1):
             row0, col0 = self.path[i]
             row1, col1 = self.path[i + 1]
-            self.path_graph.append(self.draw_line(col0, row0, col1, row1, '#0f0'))
+            self.path_graph.append(self.draw_line(col0, row0, col1, row1, '#f00'))
 
     def destroy_path(self):
         for i in self.path_graph:

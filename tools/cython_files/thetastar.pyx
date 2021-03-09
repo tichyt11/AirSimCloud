@@ -107,15 +107,15 @@ cdef class PathFinder:
     cdef public Py_ssize_t h, w
     cdef public double[:,::1] vals_view
     cdef public unsigned char[:,::1] occ_view
-    cdef double bias
+    cdef double bias, maxalt
 
-    def __init__(self, np.ndarray[np.uint8_t, ndim=2] occupancy_grid, np.ndarray[np.float64_t, ndim=2] vals, double bias=0.5):
+    def __init__(self, np.ndarray[np.uint8_t, ndim=2] occupancy_grid, np.ndarray[np.float64_t, ndim=2] vals, double maxalt=120):
         self.h = occupancy_grid.shape[0]
         self.w = occupancy_grid.shape[1]
 
         self.vals_view = vals
         self.occ_view = occupancy_grid
-        self.bias = bias
+        self.maxalt = maxalt
 
     @cython.boundscheck(False)  # Deactivate bounds checking
     @cython.wraparound(False)   # Deactivate negative indexing
@@ -125,7 +125,7 @@ cdef class PathFinder:
         cdef Py_ssize_t *rs
         cdef Py_ssize_t *cs
         cdef Py_ssize_t  num_tiles, i, r0, r1, c0, c1, r, c
-        cdef double z0, z1, defz, zb, ze, halfinc, inc, z
+        cdef double z0, z1, defz, zb, dzb, ze, dze, halfinc, inc, z
 
         r0 = n0[0]
         c0 = n0[1]
@@ -143,30 +143,32 @@ cdef class PathFinder:
         difz = z1 - z0
         halfinc = difz / ((2 * (num_tiles - 1)))
         inc = 2*halfinc
-        ze = z0 + alt + halfinc - self.bias
+        ze = z0 + alt + halfinc
 
-        if ze < z0:  # check end of first tile
+        if ze - z0 < 0:  # check end of first tile
             free(rs)
             free(cs)
             return 0
 
         for i in range(1, num_tiles-1):
+            r = rs[i]
+            c = cs[i]
             if self.occ_view[r, c] == 1:  # obstacle in the way
                 free(rs)
                 free(cs)
                 return 0
             zb = ze
             ze = ze + inc
-            r = rs[i]
-            c = cs[i]
             z = self.vals_view[r, c]
-            if zb < z or ze < z:  # line of sight collision with tile
+            dzb = zb - z
+            dze = ze - z
+            if dzb > self.maxalt or dze > self.maxalt or dzb < 0  or dze < 0:  # line of sight collision with tile or higher than allowed
                 free(rs)
                 free(cs)
                 return 0
         free(rs)
         free(cs)
-        if ze < z1:  # check beginning of last tile
+        if ze - z1 < 0:  # check beginning of last tile
             return 0
 
         return 1
@@ -174,7 +176,7 @@ cdef class PathFinder:
     @cython.initializedcheck(False) # deactivate init check
     @cython.boundscheck(False)  # Deactivate bounds checking
     @cython.wraparound(False)   # Deactivate negative indexing
-    cdef double distance_between(self, tile n0, tile n1, double diff_threshold) nogil:
+    cdef double cost(self, tile n0, tile n1, double diff_threshold) nogil:
         cdef Py_ssize_t r0, c0, r1, c1
         cdef double height_diff
         r0 = n0[0]
@@ -182,7 +184,7 @@ cdef class PathFinder:
         r1 = n1[0]
         c1 = n1[1]
         height_diff = self.vals_view[r0, c0] - self.vals_view[r1, c1]
-        if fabs(height_diff) > diff_threshold:  # penalize high altitude difference #TODO keep?
+        if fabs(height_diff) > diff_threshold:
             height_diff *= 100
         return sqrt(<double>((n1[0] - n0[0])**2 + (n1[1] - n0[1])**2 + height_diff**2))
 
@@ -190,6 +192,19 @@ cdef class PathFinder:
         # if height_diff > diff_threshold:  # penalize high altitude difference
         #     height_diff *= 100
         # return dist(n0, n1) + height_diff
+
+    @cython.initializedcheck(False) # deactivate init check
+    @cython.boundscheck(False)  # Deactivate bounds checking
+    @cython.wraparound(False)   # Deactivate negative indexing
+    cdef double heuristic(self, tile n0, tile n1) nogil:
+        cdef Py_ssize_t r0, c0, r1, c1
+        cdef double height_diff
+        r0 = n0[0]
+        c0 = n0[1]
+        r1 = n1[0]
+        c1 = n1[1]
+        height_diff = self.vals_view[r0, c0] - self.vals_view[r1, c1]
+        return sqrt(<double>((n1[0] - n0[0])**2 + (n1[1] - n0[1])**2 + height_diff**2))
 
     @cython.initializedcheck(False) # deactivate init check
     @cython.boundscheck(False)  # Deactivate bounds checking
@@ -252,11 +267,11 @@ cdef class PathFinder:
         if is_goal_reached(start, goal):
             return [start]
 
-        SearchNodes = <node*> malloc(self.w * self.h * sizeof(node))  # create grid of nodes ready
+        SearchNodes = <node*> malloc(self.w * self.h * sizeof(node))  # create grid of nodes
         if SearchNodes is NULL:
             raise MemoryError()
         for i in range(self.w * self.h):
-            init_node(& SearchNodes[i], (0,0), 0, Infinite)
+            init_node(& SearchNodes[i], (0,0), 0, Infinite)  # initialize the array
 
         fscore = dist(start, goal)
         init_node(& SearchNodes[self.tile2ref(start)], start, 1, .0)
@@ -266,7 +281,7 @@ cdef class PathFinder:
             ref = fastHeap._popped_ref
             current = & SearchNodes[ref]
             if is_goal_reached(current.data, goal):
-                return self.reconstruct_path(current, SearchNodes)  # pass SearchNodes for freeing memory
+                return self.reconstruct_path(current, SearchNodes)  # goal is reached
             current.closed = 1
             num_neighbors = self.neighbors(current.data, adjacent_tiles)
             for i in range(num_neighbors):
@@ -278,17 +293,17 @@ cdef class PathFinder:
                 if neighbor.closed:
                     continue
                 if current.came_from is not NULL and self.lineOfsight(current.came_from.data, neighbor_tile, alt):  # there is line of sight from parent to neighbor
-                    tentative_gscore = current.came_from.gscore + self.distance_between(current.came_from.data, neighbor_tile, threshold)
+                    tentative_gscore = current.came_from.gscore + self.cost(current.came_from.data, neighbor_tile, threshold)
                     if tentative_gscore >= neighbor.gscore:
                         continue
                     neighbor.came_from = current.came_from
                 else:   # no line of sight
-                    tentative_gscore = current.gscore + self.distance_between(current.data, neighbor_tile, threshold)
+                    tentative_gscore = current.gscore + self.cost(current.data, neighbor_tile, threshold)
                     if tentative_gscore >= neighbor.gscore:
                         continue
                     neighbor.came_from = current
                 neighbor.gscore = tentative_gscore
-                fscore = tentative_gscore + dist(neighbor_tile, goal)  # heuristic is the euclidian distance in xy plane
+                fscore = tentative_gscore + self.heuristic(neighbor_tile, goal)  # heuristic is the euclidian distance in xy plane
                 fastHeap.push_fast(fscore, ref)
             if fastHeap.count == 0:  # no more nodes to explore
                 break
