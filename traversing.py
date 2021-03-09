@@ -1,9 +1,9 @@
-from tools.AirSimEnv import AirSimUAV
-from Mapping import make_waypoints
+from tools.airsim_env import AirSimUAV
+from mapping import make_waypoints
 import math
 import os
 import numpy as np
-from tools.DemHandler import DemHandler
+from tools.dem_handling import DemHandler
 import matplotlib.pyplot as plt
 from tools.geo import lla_from_topocentric
 import time

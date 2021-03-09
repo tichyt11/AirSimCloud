@@ -1,16 +1,15 @@
-from tools.AirSimEnv import AirSimCV, AirSimUAV
-from tools.Distorter import Distorter
+from tools.airsim_env import AirSimCV, AirSimUAV
 from tools.data_extraction import *
 import os
 import numpy as np
 import math
-from math import sin, cos, tan
 from scipy.spatial.transform import Rotation
+import matplotlib.pyplot as plt
 
 PI = math.pi
 
 cwd = os.getcwd()
-data_path = cwd + '\\small_survey_data\\'
+data_path = cwd + '\\controlled_survey\\'
 image_path = data_path + 'images\\'
 disp_path = data_path + 'disps\\'
 dist_path = data_path + 'distorted\\'
@@ -61,27 +60,24 @@ def rotate_waypoints(coords, angles, angle=20):
 
 
 def main():
+    ref_coords = (reflat, reflon, refalt) = (3, 3, 0)  # ref lat, lon and alt for topocentric coords
+    rect = (0, -60, 340, 120)  # big survey area
+    # rect = (0, -60, 120, 120)  # small survey area
 
     # env = AirSimCV()
-    env = AirSimUAV()
-    env.disableLODs()
-
+    env = AirSimUAV(gpsref=ref_coords)
+    env.disable_lods()
     cam_params = (env.FOV, env.w, env.h)
-    ref_coords = (reflat, reflon, refalt) = (3, 3, 0)  # ref lat, lon and alt for topocentric coords
-    # rect = (0, -60, 340, 120)  # big survey area
-    rect = (0, -60, 120, 120)  # small survey area
+    waypoints, angles, numx = make_waypoints(rect, altitude=35, cam_params=cam_params)  # fill area with waypoints survey
+    env.survey(waypoints, angles[0], v=1, distort=True)
 
-    coords, angles, numx = make_waypoints(rect, altitude=40, cam_params=cam_params)  # fill area with waypoints survey
-    env.survey(coords, angles[0], data_path, v=1, distort=True)
+    # env.survey_controlled(waypoints, angles[0], data_path, v=1)
 
-    # coords2xyz_txt(data_path, coords, form='jpg')
-    # coords2gps_txt(data_path, coords, ref_coords, form='jpg')
-    # env.save_rgbs_gps(coords, angles, image_path, ref_coords, form='jpg')
-    # env.get_cloud(coords, angles, data_path)
+    # coords2xyz_txt(data_path, waypoints, form='jpg')
+    # coords2gps_txt(data_path, waypoints, ref_coords, form='jpg')
+    # env.save_rgbs_gps(waypoints, angles, image_path, ref_coords, form='jpg')
+    # env.get_cloud(waypoints, angles, data_path)
 
-    # env.save_disps(coords, angles, disp_path)
-    # env.save_rgbs(coords, angles, image_path)
-    # build_cloud_from_saved(coords, angles, data_path, env.w*env.h, env.Q)
 
 
 if __name__ == "__main__":
