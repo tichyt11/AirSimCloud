@@ -63,28 +63,22 @@ class DemHandler:
         self.heightmap = None
 
     def image2world(self, row, col):
-        if self.heightmap is not None:
-            x = self.res*col + self.grid_origin[0]
-            y = self.res*(self.h-row) + self.grid_origin[1]
-            return x, y
-        else:
-            print('No heightmap')
+        x = self.res*col + self.grid_origin[0]
+        y = self.res*(self.h-row) + self.grid_origin[1]
+        return x, y
 
     def image2world_z(self, row, col, heightmap, alt):
-        z = self.heightmap[row, col] + alt
+        z = heightmap[row, col] + alt
         x = self.res * col + self.grid_origin[0]
         y = self.res * (self.h - row) + self.grid_origin[1]
         return x, y, z
 
     def world2image(self, x, y):  # for given world point returns its coords in the dsm
-        if self.heightmap is not None:
-            col = (x - self.grid_origin[0])/self.res
-            row = self.h - (y - self.grid_origin[1])/self.res
-            col = math.floor(col)
-            row = math.floor(row)
-            return row, col
-        else:
-            print('No heightmap')
+        col = (x - self.grid_origin[0])/self.res
+        row = self.h - (y - self.grid_origin[1])/self.res
+        col = math.floor(col)
+        row = math.floor(row)
+        return row, col
 
     def create_heightmap(self, fin, fout=None):
         if self.h is not None and self.w is not None and self.grid_origin is not None:
