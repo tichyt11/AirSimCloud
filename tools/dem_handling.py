@@ -183,14 +183,13 @@ class DemHandler:
         start = self.world2image(start[0], start[1])
         goal = self.world2image(goal[0], goal[1])
         grid_path = Planner.thetastar(start, goal, alt)
-        world_path = [self.image2world_z(x, y, heightmap, alt) for x, y in grid_path]
-        return world_path
-
+        if grid_path is not None:
+            return [self.image2world_z(x, y, heightmap, alt) for x, y in grid_path]
+        return None
 
 data_path = os.getcwd() + '\\..\\maze_cv_data\\'
 gt_cloud = data_path + 'GTsampled.las'
 gt_dsm = data_path + 'GTsampled22.tif'
-
 
 def main():
     grid_origin = np.array([0, 0])  # bottom left corner of dsm world coordinates
