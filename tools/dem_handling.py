@@ -2,12 +2,12 @@ import pdal
 import tifffile
 import os
 import numpy as np
-from tools import search_gui
-from matplotlib import cm
+from matplotlib import cm, pyplot as plt
 from scipy import signal
 import math
 import tools.cython_files.thetastar as search
 import tools.search_gui as gui
+import json
 
 cmd = """
  [
@@ -26,6 +26,19 @@ cmd = """
  ]
  """
 
+cmd_auto = """
+ [
+     "%s",
+     {
+         "resolution": %f,
+         "gdaldriver":"GTiff",
+         "filename":"%s",
+         "output_type":"max",
+         "nodata":1000
+     }
+ ]
+ """
+
 
 def circle_kernel(r):
     y, x = np.ogrid[-r:r + 1, -r:r + 1]
@@ -40,41 +53,76 @@ def square_kernel(r):
 
 
 class DemHandler:
-    def __init__(self, grid_origin, h, w, res=0.3, no_data=1000):
+    def __init__(self, res=0.3, grid_origin=None, h=None, w=None, no_data=1000):
         self.grid_origin = grid_origin
         self.h, self.w = h, w
         self.res = res
         self.no_data = no_data
 
         self.grow_size = math.ceil(math.sqrt(0.5)/res)
+        self.heightmap = None
 
     def image2world(self, row, col):
-        x = self.res*col + self.grid_origin[0]
-        y = self.res*(self.h-row) + self.grid_origin[1]
-        return x, y
+        if self.heightmap is not None:
+            x = self.res*col + self.grid_origin[0]
+            y = self.res*(self.h-row) + self.grid_origin[1]
+            return x, y
+        else:
+            print('No heightmap')
 
-    def image2world_z(self, row, col, array, alt):
-        z = array[row, col] + alt
+    def image2world_z(self, row, col, heightmap, alt):
+        z = self.heightmap[row, col] + alt
         x = self.res * col + self.grid_origin[0]
         y = self.res * (self.h - row) + self.grid_origin[1]
         return x, y, z
 
     def world2image(self, x, y):  # for given world point returns its coords in the dsm
-        col = (x - self.grid_origin[0])/self.res
-        row = self.h - (y - self.grid_origin[1])/self.res
-        col = math.floor(col)
-        row = math.floor(row)
-        return row, col
+        if self.heightmap is not None:
+            col = (x - self.grid_origin[0])/self.res
+            row = self.h - (y - self.grid_origin[1])/self.res
+            col = math.floor(col)
+            row = math.floor(row)
+            return row, col
+        else:
+            print('No heightmap')
 
     def create_heightmap(self, fin, fout=None):
+        if self.h is not None and self.w is not None and self.grid_origin is not None:
+            if not fout:
+                fout = fin.strip('.ply').strip('.las') + '.tif'
+            print('Creating %s' % fout)
+            command = cmd % (fin.replace('\\', '\\\\'), self.res, fout.replace('\\', '\\\\'), self.no_data,
+                             self.grid_origin[0], self.grid_origin[1], self.h, self.w)
+            pipeline = pdal.Pipeline(command)
+            pipeline.execute()
+            self.heightmap = self.load_heightmap(fout)
+            return self.heightmap
+        else:
+            print('Missing parameters for heightmap creation. Maybe try create_heightmap_auto.')
+
+    def create_heightmap_auto(self, fin, fout=None):
         if not fout:
-            fout = fin.strip('.ply').strip('.las') + '.tif'
+            fout = fin.strip('.ply').strip('.las') + '_auto.tif'
         print('Creating %s' % fout)
-        command = cmd % (fin.replace('\\', '\\\\'), self.res, fout.replace('\\', '\\\\'), self.no_data,
-                         self.grid_origin[0], self.grid_origin[1], self.h, self.w)
+        command = cmd_auto % (fin.replace('\\', '\\\\'), self.res, fout.replace('\\', '\\\\'))
         pipeline = pdal.Pipeline(command)
         pipeline.execute()
-        return self.load_heightmap(fout)
+
+        metadata = json.loads(pipeline.metadata)['metadata']['readers.las']
+        minx = metadata['minx']
+        miny = metadata['miny']
+        maxx = metadata['maxx']
+        maxy = metadata['maxy']
+        bounds = [minx, maxx, miny, maxy]  # for future convenience all 4, only minx and miny are needed
+
+        self.update_grid_origin(bounds)  # set self.grid_origin
+        self.heightmap = self.load_heightmap(fout)  # save heightmap
+        self.h, self.w = self.heightmap.shape
+        return self.heightmap
+
+    def update_grid_origin(self, bounds):
+        grid_origin = (bounds[0] + self.res / 2, bounds[2] + self.res / 2)
+        self.grid_origin = grid_origin
 
     def load_heightmap(self, fname):
         return tifffile.imread(fname)
@@ -120,22 +168,6 @@ class DemHandler:
         occupancy = abs_occ | grad_occ
         return occupancy
 
-    def generate_metrics(self, heightmap, ground_truth, histogram_res=0.1):
-        mask = ground_truth == self.no_data
-        groundtruth = np.ma.masked_array(ground_truth, mask=mask)
-        array = np.ma.masked_array(heightmap, mask=mask)  # take out only values for which gt is available
-
-        invalid = (array == self.no_data).sum()  # number of elements which have invalid data
-        array = np.ma.masked_array(heightmap, mask=(heightmap == self.no_data))
-        # num_less = (array < groundtruth - threshold).sum()  # number of elements less than GT by at least threshold
-        # num_more = (array > groundtruth + threshold).sum()  # number of elements more than GT by at least threshold
-
-        hist_array = np.ceil(array/histogram_res)
-        histogram = np.histogram(hist_array, bins=50)
-
-        metrics = {'invalid': invalid, 'histogram': histogram}
-        return metrics
-
     def pick_path(self, heightmap, occupancy, alt=1, start_at_origin=False, world_path=True):
         vis = np.ma.masked_array(heightmap, mask=heightmap == self.no_data)
         vis = (vis - vis.min())/vis.max()  # normalize
@@ -161,9 +193,9 @@ class DemHandler:
         return world_path
 
 
-data_path = os.getcwd() + '\\..\\meadow_cv_data\\'
-odm_cloud = data_path + 'Clouds\\ODMCloud.las'
-odm_dsm = data_path + 'DSMs\\ODM_DSM.tif'
+data_path = os.getcwd() + '\\..\\maze_cv_data\\'
+gt_cloud = data_path + 'GTsampled.las'
+gt_dsm = data_path + 'GTsampled22.tif'
 
 
 def main():
@@ -173,15 +205,20 @@ def main():
     nodata = 1000
     minalt, maxalt = -5,6
 
-    handler = DemHandler(grid_origin, h, w, res, nodata)
-    # heightmap = handler.create_heightmap(odm_cloud)
-    heightmap = handler.load_heightmap(odm_dsm)
-    occupancy = handler.absolute_alt_occupancy(heightmap, minalt, maxalt)
-    world_path = handler.pick_path(heightmap, occupancy, 1)
+    handler = DemHandler(res, grid_origin, h, w, nodata)
+    heightmap = handler.create_heightmap_auto(gt_cloud, gt_dsm)
+    print(handler.grid_origin, handler.w, handler.h)
+    print(handler.world2image(0,0))
 
-    start = (16,16)
-    goal = (30,120)
-    world_path = handler.find_world_path(heightmap, occupancy, start, goal)
+    plt.imshow(np.ma.masked_array(heightmap, mask=heightmap == 1000))
+    plt.show()
+
+    # occupancy = handler.absolute_alt_occupancy(heightmap, minalt, maxalt)
+    # world_path = handler.pick_path(heightmap, occupancy, 1)
+    #
+    # start = (16,16)
+    # goal = (30,120)
+    # world_path = handler.find_world_path(heightmap, occupancy, start, goal)
 
 
 if __name__ == '__main__':

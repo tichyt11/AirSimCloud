@@ -12,33 +12,31 @@ PI = math.pi
 
 def main():
 
-    lat, lon, alt = GPSref = (0, 3, 0)
 
-    # env = AirSimUAV(GPSref)
-    # maze_path = os.getcwd() + '\\forest_maze\\'
-    #
-    # cam_params = (PI/2, 640, 360)
-    # ref_coords = (reflat, reflon, refalt) = (0, 3, 0)  # ref lat, lon and alt for topocentric coords
-    # rect = (0, 0, 120, 80)
-    # coords, angles, _ = make_waypoints(rect, altitude=30, cam_params=cam_params)
-    #
-    # env.survey(coords, angles, survey_path)
+    grid_origin = np.array([0, 0])  # bottom left corner of dsm world coordinates
+    h, w = 440, 1000
+    res = 0.3
+    nodata = 1000
+    minalt, maxalt = -5,6
 
-    # cloud = maze_path + 'ODM_ultra.las'
-    # dsm = maze_path + 'GTsampled.tif'
-    # grid_origin = np.array([-15, -60])  # bottom left corner of dsm world coordinates
-    # h, w = 500, 700
-    # rel_alt, min_alt, max_alt = 1, -5, 6
-    #
-    # dsm = handler.createDSM(cloud)
-    # actual_path = handler.PathPicker(dsm, rel_alt, min_alt, max_alt, start_at_origin=True)
-    #
-    # env = AirSimUAV()
-    # env.moveTo([0, 0, 5])
-    # env.setTraceLine()
-    # env.moveOnPath(actual_path)
-    # env.land()
+    handler = DemHandler(grid_origin, h, w, res, nodata)
+    heightmap, bounds = handler.create_heightmap_auto(gt_cloud, gt_dsm)
+    print(bounds)
+    print(heightmap.shape)
+    shp = heightmap.shape
+    print(round(math.ceil(2*(bounds[1] - bounds[0]) / res)/2), round(math.ceil(2*(bounds[3] - bounds[2]) / res)/2))
+    print('grid_origin is ', bounds[0] + res/2, bounds[2] + res/2)
+    print('start image coords are ', shp[0] - math.floor(abs(bounds[2])/res), math.floor(abs(bounds[0])/res))
 
+    plt.imshow(np.ma.masked_array(heightmap, mask=heightmap == 1000))
+    plt.show()
+
+    # occupancy = handler.absolute_alt_occupancy(heightmap, minalt, maxalt)
+    # world_path = handler.pick_path(heightmap, occupancy, 1)
+    #
+    # start = (16,16)
+    # goal = (30,120)
+    # world_path = handler.find_world_path(heightmap, occupancy, start, goal)
 
 if __name__ == '__main__':
     main()
