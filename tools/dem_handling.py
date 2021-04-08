@@ -140,7 +140,7 @@ class DemHandler:
         return grown
 
     def absolute_alt_occupancy(self, heightmap, minalt, maxalt):
-        occupancy = (heightmap < minalt) | (heightmap > maxalt)
+        occupancy = (heightmap < minalt) | (heightmap > maxalt) | (heightmap == self.no_data)
         return occupancy
 
     def gradient_field(self, heightmap):
@@ -156,11 +156,13 @@ class DemHandler:
         occupancy = gradient_field > maxgrad
         return occupancy
 
-    def combined_occupancy(self, heightmap, minalt, maxalt, maxgrad):
+    def combined_occupancy(self, heightmap, minalt, maxalt, maxgrad, grow_size=0):
         abs_occ = self.absolute_alt_occupancy(heightmap, minalt, maxalt)
         grad_occ = self.gradient_occupancy(heightmap, maxgrad)
         occupancy = abs_occ | grad_occ
-        return occupancy
+        kern = circle_kernel(grow_size)
+        grown_occupancy = signal.convolve2d(occupancy, kern, mode='same') >= 1
+        return grown_occupancy
 
     def pick_path(self, heightmap, occupancy, alt=1, start_at_origin=False, world_path=True):
         vis = np.ma.masked_array(heightmap, mask=heightmap == self.no_data)
@@ -178,13 +180,16 @@ class DemHandler:
         else:
             return picker.path
 
-    def find_world_path(self, heightmap, occupancy, start, goal, alt=1):  # finds world waypoint between start and goal
+    def find_world_path(self, heightmap, occupancy, start, goal, alt=1, world_path=True):  # finds world waypoint between start and goal
         Planner = search.PathFinder(occupancy, heightmap)
         start = self.world2image(start[0], start[1])
         goal = self.world2image(goal[0], goal[1])
         grid_path = Planner.thetastar(start, goal, alt)
         if grid_path is not None:
-            return [self.image2world_z(x, y, heightmap, alt) for x, y in grid_path]
+            if world_path:
+                return [self.image2world_z(x, y, heightmap, alt) for x, y in grid_path]
+            else:
+                return grid_path
         return None
 
 data_path = os.getcwd() + '\\..\\maze_cv_data\\'
