@@ -156,7 +156,10 @@ class DemHandler:
         occupancy = gradient_field > maxgrad
         return occupancy
 
-    def combined_occupancy(self, heightmap, minalt, maxalt, maxgrad, grow_size=0):
+    def combined_occupancy(self, heightmap, minalt, maxalt, maxgrad, grow_size=None):
+        if grow_size is None:
+            grow_size = self.grow_size
+
         abs_occ = self.absolute_alt_occupancy(heightmap, minalt, maxalt)
         grad_occ = self.gradient_occupancy(heightmap, maxgrad)
         occupancy = abs_occ | grad_occ
@@ -196,27 +199,24 @@ data_path = os.getcwd() + '\\..\\maze_cv_data\\'
 gt_cloud = data_path + 'GTsampled.las'
 gt_dsm = data_path + 'GTsampled22.tif'
 
+
 def main():
     grid_origin = np.array([0, 0])  # bottom left corner of dsm world coordinates
     h, w = 440, 1000
     res = 0.3
     nodata = 1000
-    minalt, maxalt = -5,6
+    minalt, maxalt = -3,10
 
     handler = DemHandler(res, grid_origin, h, w, nodata)
-    heightmap = handler.create_heightmap_auto(gt_cloud, gt_dsm)
-    print(handler.grid_origin, handler.w, handler.h)
-    print(handler.world2image(0,0))
+    # heightmap = handler.create_heightmap_auto(gt_cloud, gt_dsm)
+    heightmap = handler.load_heightmap(gt_dsm)
 
-    plt.imshow(np.ma.masked_array(heightmap, mask=heightmap == 1000))
-    plt.show()
+    occupancy = handler.combined_occupancy(heightmap, minalt, maxalt, 0.6)
+    grown = handler.grow_heightmap(heightmap)
 
-    # occupancy = handler.absolute_alt_occupancy(heightmap, minalt, maxalt)
-    # world_path = handler.pick_path(heightmap, occupancy, 1)
-    #
-    # start = (16,16)
-    # goal = (30,120)
-    # world_path = handler.find_world_path(heightmap, occupancy, start, goal)
+    start = (16, 16)
+    goal = (30, 120)
+    world_path = handler.find_world_path(heightmap, occupancy, start, goal)
 
 
 if __name__ == '__main__':

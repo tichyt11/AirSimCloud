@@ -61,14 +61,25 @@ class AirSimBase:
         for cmd in commands:
             self.client.simRunConsoleCommand(cmd)
 
+    def increase_buffer_size(self):
+        cmd = 'r.streaming.poolsize 2000'
+        self.client.simRunConsoleCommand(cmd)
+
     def draw_points(self, coords, rgba=(1, 0, 0, 1), duration=60):
         points = [airsim.Vector3r(x, -y, -z) for x, y, z in coords]
         self.client.simPlotPoints(points, rgba, duration=duration)
+
+    def draw_lines(self, coords, rgba=(1, 0, 0, 1), duration=60):
+        points = [airsim.Vector3r(x, -y, -z) for x, y, z in coords]
+        self.client.simPlotLineStrip(points, rgba, duration=duration)
 
     def ping(self):
         start = time.time()
         self.client.ping()
         return time.time() - start
+
+    def reset(self):
+        self.client.reset()
 
 
 class AirSimCV(AirSimBase):
@@ -190,6 +201,10 @@ class AirSimUAV(AirSimBase):
         x, y, z = pos.x_val, -pos.y_val, -pos.z_val  # flip y and z from Airsim coordinate system
         return x, y, z
 
+    def get_orientation(self):
+        orientation = self.client.simGetGroundTruthKinematics().orientation
+        return orientation
+
     def get_camera_xyz(self):
         pos = self.client.simGetCameraInfo().position  # camera has different cooridnates than the drone
         x, y, z = pos.x_val, -pos.y_val, -pos.z_val  # flip y and z from Airsim coordinate system
@@ -213,9 +228,12 @@ class AirSimUAV(AirSimBase):
         lat = -(sim_lon - reflon) + reflat  # AirSim -lon becomes my lat
         return lat, lon, alt
 
-    def takeOff(self):
-        self.client.takeoffAsync().join()
-        self.hover()
+    def takeOff(self, wait=True):
+        if wait:
+            self.client.takeoffAsync().join()
+            self.hover()
+        else:
+            self.client.takeoffAsync()
 
     def hover(self):
         self.client.hoverAsync().join()
@@ -225,18 +243,27 @@ class AirSimUAV(AirSimBase):
         camera_pose = airsim.Pose(airsim.Vector3r(0, 0, 0), airsim.to_quaternion(pitch, roll, yaw))
         self.client.simSetCameraPose("0", camera_pose)
 
-    def move_to(self, coords, v=5, wait=True):
+    def set_xyz(self, coords):  # teleport
+        x, y, z = coords
+        ori = self.get_orientation()
+        pose = airsim.Pose(airsim.Vector3r(x, -y, -z), ori)
+        self.client.simSetVehiclePose(pose, ignore_collison=True)
+
+    def move_to(self, coords, v=5, wait=True, timeout=20):
         x, y, z = coords
         y, z = -y, -z  # flip y and z into Airsim coordinate system
         if wait:
-            self.client.moveToPositionAsync(x, y, z, v).join()
+            self.client.moveToPositionAsync(x, y, z, v, yaw_mode=airsim.YawMode(False, 0), drivetrain=airsim.DrivetrainType.ForwardOnly, timeout_sec=timeout).join()
         else:
-            self.client.moveToPositionAsync(x, y, z, v)
+            self.client.moveToPositionAsync(x, y, z, v, yaw_mode=airsim.YawMode(False, 0), drivetrain=airsim.DrivetrainType.ForwardOnly)
 
-    def moveByVelocity(self, vx, vy, vz, t):
+    def moveByVelocity(self, vx, vy, vz, t, wait=True):
         vy = -vy
         vz = -vz
-        return self.client.moveByVelocityAsync(vx, vy, vz, t).join()
+        if wait:
+            return self.client.moveByVelocityAsync(vx, vy, vz, t, yaw_mode=airsim.YawMode(False, 0), drivetrain=airsim.DrivetrainType.ForwardOnly).join()
+        else:
+            return self.client.moveByVelocityAsync(vx, vy, vz, t, yaw_mode=airsim.YawMode(False, 0), drivetrain=airsim.DrivetrainType.ForwardOnly)
 
     def move_from_to(self, fromcoords, tocoords, v=10):
         x0, y0, z0 = fromcoords
@@ -258,10 +285,10 @@ class AirSimUAV(AirSimBase):
         airsim_path = [airsim.Vector3r(x, -y, -z) for x, y, z in path]  # flip y and z into Airsim coordinate system
         if wait:
             self.client.moveOnPathAsync(airsim_path, v, trip_time, airsim.DrivetrainType.ForwardOnly,
-                                        airsim.YawMode(False, 0), lookahead, 1).join()
+                                        airsim.YawMode(False, 0), lookahead, 0).join()
         else:
             self.client.moveOnPathAsync(airsim_path, v, trip_time, airsim.DrivetrainType.ForwardOnly,
-                                        airsim.YawMode(False, 0), lookahead, 1)
+                                        airsim.YawMode(False, 0), lookahead, 0)
 
     def survey(self, waypoints, gimbal_angle, v=5, distort=False, precision=0.1):
         print('Info: Flying to survey altitude')
@@ -335,5 +362,10 @@ class AirSimUAV(AirSimBase):
         self.client.landAsync().join()
         self.client.armDisarm(False)
 
-    def setTraceLine(self, rgba=(1, 0, 0, 1), thickness=1):
+    def setTraceLine(self, rgba=(1, 0, 0, 1), thickness=5):
         self.client.simSetTraceLine(rgba, thickness)
+
+    def reset(self):
+        self.client.reset()
+        self.client.enableApiControl(True)
+        self.client.armDisarm(True)
